@@ -461,16 +461,28 @@ export const api = {
   deleteProgram: async (id: number) => deleteRow('programs', id),
   createRevisionItem: async (payload: Record<string, unknown>) => ({ id: await insertId('revision_items', payload) }),
   deleteRevisionItem: async (id: number) => deleteRow('revision_items', id),
-  bulkImport: async (payload: { entityType: 'questions' | 'topics' | 'resources'; subjectId: number; moduleId?: number | null; items: Array<Record<string, unknown>> }) => {
+  bulkImport: async (payload: { entityType: 'questions' | 'topics' | 'resources' | 'programs' | 'revision_items'; subjectId: number; moduleId?: number | null; items: Array<Record<string, unknown>> }) => {
     let inserted = 0;
+    const moduleNumbers = [...new Set(payload.items.map((item) => Number(item.module_number)).filter((value) => Number.isInteger(value) && value > 0))];
+    const modules = moduleNumbers.length
+      ? await result<Row[]>(getSupabase().from('modules').select('id,module_number').eq('subject_id', payload.subjectId).in('module_number', moduleNumbers))
+      : [];
+    const moduleIdByNumber = new Map(modules.map((module) => [Number(module.module_number), Number(module.id)]));
     for (const item of payload.items) {
-      const module_id = item.module_id ? Number(item.module_id) : payload.moduleId ?? null;
+      const module_id = item.module_number
+        ? moduleIdByNumber.get(Number(item.module_number)) ?? null
+        : item.module_id ? Number(item.module_id) : payload.moduleId ?? null;
+      if (item.module_number && !module_id) throw new Error(`Module ${item.module_number} is not configured for this subject.`);
       if (payload.entityType === 'topics') {
         await api.createTopic({ ...item, subject_id: payload.subjectId, module_id });
       } else if (payload.entityType === 'resources') {
         await api.createResource({ ...item, subject_id: payload.subjectId, module_id });
-      } else {
+      } else if (payload.entityType === 'questions') {
         await api.createQuestion({ ...item, subject_id: payload.subjectId, module_id });
+      } else if (payload.entityType === 'programs') {
+        await api.createProgram({ ...item, subject_id: payload.subjectId, module_id });
+      } else {
+        await api.createRevisionItem({ ...item, subject_id: payload.subjectId, module_id });
       }
       inserted++;
     }

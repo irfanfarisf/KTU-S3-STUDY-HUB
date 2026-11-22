@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { ModuleItem, ProgramItem, Question, Resource, RevisionItem, Subject, Topic } from '@shared/types';
 import { api } from '@/lib/api';
+import { GENERATED_S3_PACK } from '@/data/generatedS3Pack';
 import { useStudy } from '@/context/StudyContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -158,8 +159,9 @@ export function AdminDashboardPage() {
   const [semForm, setSemForm] = useState({ number: 5, label: 'Semester 5 (S5)', code: 'S5' });
 
   // Bulk import
-  const [bulkEntity, setBulkEntity] = useState<'questions' | 'topics' | 'resources'>('questions');
+  const [bulkEntity, setBulkEntity] = useState<'questions' | 'topics' | 'resources' | 'programs' | 'revision_items'>('questions');
   const [bulkModuleId, setBulkModuleId] = useState('');
+  const [publishingGeneratedPack, setPublishingGeneratedPack] = useState(false);
   const [bulkJson, setBulkJson] = useState(
     JSON.stringify(
       [
@@ -256,6 +258,63 @@ export function AdminDashboardPage() {
       notify('err', (err as Error).message);
     } finally {
       setUploadingFile(false);
+    }
+  };
+
+  const publishGeneratedPack = async () => {
+    const subject = subjects.find((row) => row.id === selectedSubjectId);
+    const pack = subject ? GENERATED_S3_PACK[subject.code] : null;
+    if (!subject || !pack) {
+      notify('err', 'The generated study pack is not configured for this subject.');
+      return;
+    }
+    setPublishingGeneratedPack(true);
+    try {
+      const detail = await api.getSubjectDetail(subject.id);
+      const moduleNumberExists = (number: number) => detail.modules.some((module) => module.module_number === number);
+      const notes = pack.filter((item) => moduleNumberExists(item.module_number) && !resources.some((row) => row.title === `Generated Exam Notes — Module ${item.module_number}`)).map((item) => ({
+        module_number: item.module_number,
+        title: `Generated Exam Notes — Module ${item.module_number}`,
+        description: `Original, syllabus-aligned revision notes for ${subject.code} Module ${item.module_number}. Prepared by synthesizing the supplied KTU syllabus, notes, question bank and exam papers.`,
+        resource_type: 'exam_notes', source_category: 'simplified_ai_notes', importance: 'important', content_format: 'markdown', content_markdown: item.note, is_published: true,
+      }));
+      const newQuestions = pack.filter((item) => moduleNumberExists(item.module_number) && !questions.some((row) =>
+        row.module_id === detail.modules.find((module) => module.module_number === item.module_number)?.id &&
+        row.question_text === item.question && row.source_label === 'Generated S3 Study Pack — syllabus/source synthesis'
+      )).map((item) => ({
+        module_number: item.module_number,
+        question_text: item.question,
+        question_type: 'descriptive', marks: 5, difficulty: 'medium', importance: 'must_study',
+        source_label: 'Generated S3 Study Pack — syllabus/source synthesis', source_category: 'practice_material', is_important: true,
+        short_answer: item.answer, detailed_explanation: item.answer, expected_marks: 5, is_published: true,
+      }));
+      const appliedExamples = pack.filter((item) => moduleNumberExists(item.module_number) && !programs.some((row) => row.title === `Worked Example — Module ${item.module_number}`)).map((item) => ({
+        module_number: item.module_number, title: `Worked Example — Module ${item.module_number}`, description: item.problem,
+        problem_statement: item.problem, language: 'text', code: item.workedExample, explanation: item.workedExample,
+        importance: 'important', is_published: true,
+      }));
+      const cards = pack.flatMap((item) => [
+        { module_number: item.module_number, title: item.revisionTitle, content_markdown: item.revision, category: 'concept', importance: 'must_study', is_published: true },
+        { module_number: item.module_number, title: item.revision2Title, content_markdown: item.revision2, category: 'concept', importance: 'important', is_published: true },
+      ]).filter((item) => moduleNumberExists(item.module_number) && !revisionItems.some((row) => row.title === item.title));
+      const operations = [
+        ['resources', notes], ['questions', newQuestions], ['programs', appliedExamples], ['revision_items', cards],
+      ] as const;
+      let inserted = 0;
+      for (const [entityType, items] of operations) {
+        if (items.length) {
+          const result = await api.bulkImport({ entityType, subjectId: subject.id, items });
+          inserted += result.inserted;
+        }
+      }
+      await loadSubjectScopedData(subject.id);
+      await loadSubjects();
+      notify('ok', inserted ? `Published ${inserted} generated items for ${subject.code}.` : `Generated pack for ${subject.code} is already complete.`);
+
+    } catch (err) {
+      notify('err', `Generated pack import stopped: ${(err as Error).message}`);
+    } finally {
+      setPublishingGeneratedPack(false);
     }
   };
 
@@ -1479,14 +1538,28 @@ export function AdminDashboardPage() {
             <p className="mt-1 text-xs text-slate-500">
               Paste a JSON array of questions, topics, or markdown notes to import in one transaction.
             </p>
+            {activeSubject && GENERATED_S3_PACK[activeSubject.code] && (
+              <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+                <h3 className="text-sm font-semibold">Complete the generated study sections</h3>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Publish original syllabus-aligned notes, solved practice questions, worked examples and quick-revision cards for all configured modules in {activeSubject.code}.
+                </p>
+                <Button className="mt-3" disabled={publishingGeneratedPack} onClick={publishGeneratedPack}>
+                  <Zap className="h-4 w-4" />
+                  {publishingGeneratedPack ? 'Publishing study pack…' : 'Publish generated study pack'}
+                </Button>
+              </div>
+            )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Select
                 value={bulkEntity}
-                onChange={(e) => setBulkEntity(e.target.value as 'questions' | 'topics' | 'resources')}
+                onChange={(e) => setBulkEntity(e.target.value as 'questions' | 'topics' | 'resources' | 'programs' | 'revision_items')}
               >
                 <option value="questions">Questions (+ Answers)</option>
                 <option value="topics">Topics</option>
                 <option value="resources">Simplified Notes / Resources</option>
+                <option value="programs">Programs / Applied Examples</option>
+                <option value="revision_items">Quick Revision Cards</option>
               </Select>
               <Select
                 value={bulkModuleId}
