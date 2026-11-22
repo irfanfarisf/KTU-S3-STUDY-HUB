@@ -252,7 +252,7 @@ export function ModuleDetailPage() {
       <div className="mt-4 flex flex-wrap gap-2 text-xs">
         {[
           { href: '#simplified-notes', label: 'Simplified Notes' },
-          { href: '#original-notes', label: 'Original Notes' },
+          { href: '#original-notes', label: 'KTU Notes' },
           { href: '#handwritten-notes', label: 'Handwritten Notes' },
           { href: '#important-questions', label: 'Important Questions' },
           { href: '#questions', label: 'Question Bank' },
@@ -314,16 +314,16 @@ export function ModuleDetailPage() {
         )}
       </section>
 
-      {/* Section 3 & 4: Original Notes & Handwritten Notes */}
+      {/* Section 3 & 4: KTU Notes & Handwritten Notes */}
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <section id="original-notes" className="scroll-mt-20">
           <SectionTitle
             icon={FileText}
-            title="3. Original Classroom Notes"
-            subtitle="Faculty & classroom reference PDFs"
+            title="3. KTU Notes"
+            subtitle="KTU course notes organized by module"
           />
           {originalNotes.length === 0 ? (
-            <SectionEmpty text="No original classroom notes linked to this module yet." />
+            <SectionEmpty text="No KTU notes linked to this module yet." />
           ) : (
             <div className="space-y-3">
               {originalNotes.map((doc) => (

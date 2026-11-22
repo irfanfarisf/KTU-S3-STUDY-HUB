@@ -109,7 +109,7 @@ export function AdminDashboardPage() {
   const [resourceEntryMode, setResourceEntryMode] = useState<'custom' | 'upload'>('custom');
   const [uploadQueue, setUploadQueue] = useState<File[]>([]);
   const [uploadTitle, setUploadTitle] = useState('');
-  const [uploadCategory, setUploadCategory] = useState('Study Notes');
+  const [uploadCategory, setUploadCategory] = useState('KTU Notes');
   const [uploadModuleId, setUploadModuleId] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
   const [uploadPublished, setUploadPublished] = useState(true);
@@ -795,13 +795,13 @@ export function AdminDashboardPage() {
                 <p className="mt-1 text-xs text-slate-500">Files are attached to {activeSubject?.code} ({activeSubject?.branch_code}, {activeSubject?.semester_code}).</p>
                 <div className="mt-3 space-y-3">
                   <Select value={uploadModuleId} onChange={(e) => setUploadModuleId(e.target.value)}><option value="">Subject-wide</option>{modules.map((m) => <option key={m.id} value={m.id}>Module {m.module_number}: {m.title}</option>)}</Select>
-                  <Select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)}>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
+                  <Select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)}>{['KTU Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
                   <Input placeholder="Title (used for one file)" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} />
                   <Textarea rows={2} placeholder="Description (optional)" value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} />
                   <label className="block cursor-pointer rounded-xl border-2 border-dashed border-indigo-300 p-5 text-center text-xs text-slate-600 dark:border-indigo-800 dark:text-slate-300" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setUploadQueue((q) => [...q, ...Array.from(e.dataTransfer.files)]); }}>
                     <Upload className="mx-auto mb-2 h-5 w-5 text-indigo-600" />Drop files here or <span className="font-semibold text-indigo-600">browse files</span><input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={(e) => setUploadQueue((q) => [...q, ...Array.from(e.target.files || [])])} /><span className="mt-1 block text-[10px]">PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP • max 25 MB each</span>
                   </label>
-                  {uploadQueue.map((f, i) => <div key={`${f.name}-${i}`} className="space-y-2 rounded-lg border p-2"><span className="block truncate text-xs">{f.name} · {(f.size / 1048576).toFixed(2)} MB</span><Input placeholder="Title (defaults to file name)" value={uploadOverrides[uploadKey(f)]?.title || ''} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: e.target.value, category: v[uploadKey(f)]?.category || uploadCategory } }))} /><Select value={uploadOverrides[uploadKey(f)]?.category || uploadCategory} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: v[uploadKey(f)]?.title || '', category: e.target.value } }))}>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select><button type="button" onClick={() => setUploadQueue((q) => q.filter((_, n) => n !== i))} className="text-xs text-rose-600">Remove</button></div>)}
+                  {uploadQueue.map((f, i) => <div key={`${f.name}-${i}`} className="space-y-2 rounded-lg border p-2"><span className="block truncate text-xs">{f.name} · {(f.size / 1048576).toFixed(2)} MB</span><Input placeholder="Title (defaults to file name)" value={uploadOverrides[uploadKey(f)]?.title || ''} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: e.target.value, category: v[uploadKey(f)]?.category || uploadCategory } }))} /><Select value={uploadOverrides[uploadKey(f)]?.category || uploadCategory} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: v[uploadKey(f)]?.title || '', category: e.target.value } }))}>{['KTU Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select><button type="button" onClick={() => setUploadQueue((q) => q.filter((_, n) => n !== i))} className="text-xs text-rose-600">Remove</button></div>)}
                   <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={uploadPublished} onChange={(e) => setUploadPublished(e.target.checked)} />Publish immediately</label>
                   {uploadProgress && <p className="text-xs text-indigo-600">{uploadProgress}</p>}
                   <Button className="w-full" disabled={!uploadQueue.length || uploadingFile} onClick={async () => {
@@ -814,7 +814,7 @@ export function AdminDashboardPage() {
                         setUploadProgress(`Uploading ${index + 1} of ${filesToUpload.length}: ${file.name}`);
                         const uploaded = await api.uploadFile(file);
                         const category = uploadOverrides[uploadKey(file)]?.category || uploadCategory;
-                        const categoryType: Record<string, string> = {'Study Notes':'exam_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Important Questions':'exam_notes','Reference Materials':'reference_notes','Assignments':'exam_notes','Other Resources':'exam_notes'};
+                        const categoryType: Record<string, string> = {'KTU Notes':'original_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Important Questions':'exam_notes','Reference Materials':'reference_notes','Assignments':'exam_notes','Other Resources':'exam_notes'};
                         await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (uploadQueue.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: 'pdf', file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
                         completed++;
                         setUploadQueue((queue) => queue.filter((queued) => uploadKey(queued) !== uploadKey(file)));
@@ -888,7 +888,7 @@ export function AdminDashboardPage() {
                 >
                   <option value="exam_notes">Simplified Exam Notes</option>
                   <option value="handwritten_notes">Handwritten Notes (PDF)</option>
-                  <option value="original_notes">Original Classroom Notes (PDF)</option>
+                  <option value="original_notes">KTU Notes (PDF)</option>
                   <option value="reference_notes">Reference Notes</option>
                   <option value="syllabus">Official Syllabus</option>
                   <option value="pyq">Previous Year Question Paper (PYQ)</option>
@@ -984,7 +984,7 @@ export function AdminDashboardPage() {
               </h2>
               <div className="mb-3 grid gap-2 sm:grid-cols-3">
                 <Select value={resourceModuleFilter} onChange={(e) => setResourceModuleFilter(e.target.value)}><option value="all">All modules</option><option value="none">Subject-wide</option>{modules.map((m) => <option key={m.id} value={String(m.id)}>Module {m.module_number}</option>)}</Select>
-                <Select value={resourceCategoryFilter} onChange={(e) => setResourceCategoryFilter(e.target.value)}><option value="all">All categories</option>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
+                <Select value={resourceCategoryFilter} onChange={(e) => setResourceCategoryFilter(e.target.value)}><option value="all">All categories</option>{['KTU Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
                 <Select value={resourceTypeFilter} onChange={(e) => setResourceTypeFilter(e.target.value)}><option value="all">All file types</option>{['pdf','doc','docx','jpg','jpeg','png','webp'].map((ext) => <option key={ext} value={ext}>{ext.toUpperCase()}</option>)}</Select>
               </div>
               <div className="space-y-2.5">
@@ -1022,7 +1022,7 @@ export function AdminDashboardPage() {
                             if (!title?.trim()) return;
                             const description = window.prompt('Description', r.description || '');
                             const category = window.prompt('Category', r.category || 'Other Resources');
-                            const categoryType: Record<string, string> = {'Study Notes':'exam_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Reference Materials':'reference_notes'};
+                            const categoryType: Record<string, string> = {'KTU Notes':'original_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Reference Materials':'reference_notes'};
                             await api.patchResource(r.id, { title: title.trim(), description: description ?? r.description, category: category || r.category, resource_type: categoryType[category || ''] || r.resource_type });
                             await loadSubjectScopedData(selectedSubjectId);
                           }}

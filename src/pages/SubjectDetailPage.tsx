@@ -155,7 +155,7 @@ export function SubjectDetailPage() {
     { id: 'overview', label: 'Overview & Modules', count: modules.length, icon: Layers },
     { id: 'syllabus', label: 'Official Syllabus', icon: FileText },
     { id: 'exam_notes', label: 'Exam Notes', count: resources.filter((r) => (r.resource_type === 'exam_notes' || r.resource_type === 'diagram') && r.category !== 'Question Banks').length, icon: Sparkles },
-    { id: 'pdf_notes', label: 'Handwritten & Original', count: resources.filter((r) => ['handwritten_notes', 'original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: PenTool },
+    { id: 'pdf_notes', label: 'Handwritten & KTU Notes', count: resources.filter((r) => ['handwritten_notes', 'original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: PenTool },
     { id: 'pyqs', label: 'PYQs & Model Papers', count: paperDocs.length, icon: GraduationCap },
     { id: 'question_bank', label: 'Question Bank', count: questions.length + questionBankDocs.length, icon: HelpCircle },
     { id: 'solved', label: 'Solved Q&A', count: questions.filter((q) => q.is_solved).length, icon: CheckCircle2 },
@@ -560,7 +560,7 @@ export function SubjectDetailPage() {
             {libraryNotes.length === 0 ? (
               <div className="sm:col-span-2">
                 <EmptySubjectState
-                  label="Handwritten & Original Notes"
+                  label="Handwritten & KTU Notes"
                   subjectCode={subject.code}
                 />
               </div>

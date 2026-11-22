@@ -117,9 +117,9 @@ export function NotesLibraryPage() {
             <Select value={typeFilter} onChange={(e) => updateParam('type', e.target.value)}>
               <option value="all_notes">All Notes &amp; Syllabus</option>
               <option value="exam_notes">Simplified Exam-Friendly Notes</option>
-              <option value="handwritten_notes,original_notes">Handwritten &amp; Original Notes</option>
+              <option value="handwritten_notes,original_notes">Handwritten &amp; KTU Notes</option>
               <option value="handwritten_notes">Handwritten Notes Only</option>
-              <option value="original_notes">Original Classroom Notes Only</option>
+              <option value="original_notes">KTU Notes Only</option>
               <option value="reference_notes">Reference Notes</option>
               <option value="syllabus">Official Syllabus</option>
               <option value="diagram">Diagrams</option>

@@ -136,7 +136,7 @@ export function SearchPage() {
               <option value="">All Resource Types</option>
               <option value="exam_notes">Simplified Exam Notes</option>
               <option value="handwritten_notes">Handwritten Notes</option>
-              <option value="original_notes">Original Notes</option>
+              <option value="original_notes">KTU Notes</option>
               <option value="syllabus">Syllabus</option>
               <option value="pyq">PYQs</option>
               <option value="model_paper">Model Papers</option>

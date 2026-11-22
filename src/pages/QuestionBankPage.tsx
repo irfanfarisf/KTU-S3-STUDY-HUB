@@ -19,6 +19,7 @@ export function QuestionBankPage() {
   const [bankResources, setBankResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [bankLoading, setBankLoading] = useState(true);
+  const [pdfPreview, setPdfPreview] = useState<Resource | null>(null);
   const [revealAllKey, setRevealAllKey] = useState(0);
   const [revealAllDefault, setRevealAllDefault] = useState(false);
 

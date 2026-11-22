@@ -36,7 +36,7 @@ export const IMPORTANCE_META: Record<
 
 export const RESOURCE_TYPE_LABELS: Record<ResourceType, string> = {
   exam_notes: 'Exam-Friendly Notes',
-  original_notes: 'Original Classroom Notes',
+  original_notes: 'KTU Notes',
   handwritten_notes: 'Handwritten Notes',
   reference_notes: 'Reference Notes',
   syllabus: 'Official Syllabus',
