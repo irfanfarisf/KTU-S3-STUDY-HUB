@@ -288,8 +288,8 @@ export function AdminDashboardPage() {
         source_label: 'Generated S3 Study Pack — syllabus/source synthesis', source_category: 'practice_material', is_important: true,
         short_answer: item.answer, detailed_explanation: item.answer, expected_marks: 5, is_published: true,
       }));
-      const appliedExamples = pack.filter((item) => moduleNumberExists(item.module_number) && !programs.some((row) => row.title === `Worked Example — Module ${item.module_number}`)).map((item) => ({
-        module_number: item.module_number, title: `Worked Example — Module ${item.module_number}`, description: item.problem,
+      const appliedExamples = pack.filter((item) => moduleNumberExists(item.module_number) && !programs.some((row) => row.title === `Worked Example — Module ${item.module_number}: ${item.exampleTitle}`)).map((item) => ({
+        module_number: item.module_number, title: `Worked Example — Module ${item.module_number}: ${item.exampleTitle}`, description: item.problem,
         problem_statement: item.problem, language: 'text', code: item.workedExample, explanation: item.workedExample,
         importance: 'important', is_published: true,
       }));

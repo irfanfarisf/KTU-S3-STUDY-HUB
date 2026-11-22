@@ -473,16 +473,17 @@ export const api = {
         ? moduleIdByNumber.get(Number(item.module_number)) ?? null
         : item.module_id ? Number(item.module_id) : payload.moduleId ?? null;
       if (item.module_number && !module_id) throw new Error(`Module ${item.module_number} is not configured for this subject.`);
+      const { module_number: _moduleNumber, ...record } = item;
       if (payload.entityType === 'topics') {
-        await api.createTopic({ ...item, subject_id: payload.subjectId, module_id });
+        await api.createTopic({ ...record, subject_id: payload.subjectId, module_id });
       } else if (payload.entityType === 'resources') {
-        await api.createResource({ ...item, subject_id: payload.subjectId, module_id });
+        await api.createResource({ ...record, subject_id: payload.subjectId, module_id });
       } else if (payload.entityType === 'questions') {
-        await api.createQuestion({ ...item, subject_id: payload.subjectId, module_id });
+        await api.createQuestion({ ...record, subject_id: payload.subjectId, module_id });
       } else if (payload.entityType === 'programs') {
-        await api.createProgram({ ...item, subject_id: payload.subjectId, module_id });
+        await api.createProgram({ ...record, subject_id: payload.subjectId, module_id });
       } else {
-        await api.createRevisionItem({ ...item, subject_id: payload.subjectId, module_id });
+        await api.createRevisionItem({ ...record, subject_id: payload.subjectId, module_id });
       }
       inserted++;
     }
