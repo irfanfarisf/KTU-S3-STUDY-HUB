@@ -118,6 +118,7 @@ export function SubjectDetailPage() {
   const examNotes = resources.filter(
     (r) =>
       (r.resource_type === 'exam_notes' || r.resource_type === 'diagram') &&
+      r.category !== 'Question Banks' &&
       (moduleFilter === 'all' || String(r.module_id) === moduleFilter) &&
       (impFilter === 'all' || r.importance === impFilter)
   );
@@ -133,6 +134,7 @@ export function SubjectDetailPage() {
   const paperDocs = resources.filter((r) =>
     ['pyq', 'model_paper', 'solved_paper'].includes(r.resource_type)
   );
+  const questionBankDocs = resources.filter((r) => r.category === 'Question Banks');
 
   const filteredQuestions = questions.filter(
     (q) =>
@@ -152,10 +154,10 @@ export function SubjectDetailPage() {
   const tabs: Array<{ id: SubjectTab; label: string; count?: number; icon: React.ElementType }> = [
     { id: 'overview', label: 'Overview & Modules', count: modules.length, icon: Layers },
     { id: 'syllabus', label: 'Official Syllabus', icon: FileText },
-    { id: 'exam_notes', label: 'Exam Notes', count: resources.filter((r) => r.resource_type === 'exam_notes' || r.resource_type === 'diagram').length, icon: Sparkles },
+    { id: 'exam_notes', label: 'Exam Notes', count: resources.filter((r) => (r.resource_type === 'exam_notes' || r.resource_type === 'diagram') && r.category !== 'Question Banks').length, icon: Sparkles },
     { id: 'pdf_notes', label: 'Handwritten & Original', count: resources.filter((r) => ['handwritten_notes', 'original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: PenTool },
     { id: 'pyqs', label: 'PYQs & Model Papers', count: paperDocs.length, icon: GraduationCap },
-    { id: 'question_bank', label: 'Question Bank', count: questions.length, icon: HelpCircle },
+    { id: 'question_bank', label: 'Question Bank', count: questions.length + questionBankDocs.length, icon: HelpCircle },
     { id: 'solved', label: 'Solved Q&A', count: questions.filter((q) => q.is_solved).length, icon: CheckCircle2 },
     { id: 'programs', label: 'Programs / Problems', count: programs.length, icon: FileCode2 },
     { id: 'revision', label: 'Quick Revision', count: revisionItems.length, icon: Zap },
@@ -598,12 +600,30 @@ export function SubjectDetailPage() {
 
         {/* 6. QUESTION BANK */}
         {tab === 'question_bank' && (
-          <div className="space-y-3">
-            {filteredQuestions.length === 0 ? (
-              <EmptySubjectState label="Question Bank" subjectCode={subject.code} />
-            ) : (
-              filteredQuestions.map((q) => <QuestionCard key={q.id} question={q} />)
+          <div className="space-y-6">
+            {questionBankDocs.length > 0 && (
+              <section>
+                <h3 className="mb-3 text-base font-bold text-slate-900 dark:text-white">
+                  Uploaded Question Bank PDFs ({questionBankDocs.length})
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {questionBankDocs.map((doc) => (
+                    <ResourceFileCard key={doc.id} resource={doc} onPreview={() => showPreview(doc)} />
+                  ))}
+                </div>
+              </section>
             )}
+            <section className="space-y-3">
+              {filteredQuestions.length === 0 && questionBankDocs.length === 0 ? (
+                <EmptySubjectState label="Question Bank" subjectCode={subject.code} />
+              ) : filteredQuestions.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No structured questions are available for this subject yet.
+                </p>
+              ) : (
+                filteredQuestions.map((q) => <QuestionCard key={q.id} question={q} />)
+              )}
+            </section>
           </div>
         )}
 

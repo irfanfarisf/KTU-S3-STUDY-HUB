@@ -43,15 +43,23 @@ export function NotesLibraryPage() {
       typeFilter === 'all_notes'
         ? 'exam_notes,original_notes,handwritten_notes,reference_notes,syllabus,diagram'
         : typeFilter;
-    api
-      .getResources({
-        subjectId: subjectFilter !== 'all' ? Number(subjectFilter) : undefined,
-        resourceType: resourceTypeParam,
-        importance: impFilter !== 'all' ? impFilter : undefined,
-        schemeId: selection.schemeId,
-        semesterId: selection.semesterId,
-      })
-      .then(setResources)
+    const filters = {
+      subjectId: subjectFilter !== 'all' ? Number(subjectFilter) : undefined,
+      importance: impFilter !== 'all' ? impFilter : undefined,
+      schemeId: selection.schemeId,
+      semesterId: selection.semesterId,
+    };
+    const resourceTypes = resourceTypeParam.split(',');
+    Promise.all([
+      api.getResources({ ...filters, resourceType: resourceTypeParam }),
+      resourceTypes.includes('syllabus') ? api.getSyllabi(filters) : Promise.resolve([]),
+    ])
+      .then(([resourceRows, syllabi]) =>
+        setResources([
+          ...syllabi,
+          ...resourceRows.filter((resource) => resource.category !== 'Question Banks'),
+        ])
+      )
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [subjectFilter, typeFilter, impFilter, selection.schemeId, selection.semesterId]);
@@ -63,8 +71,8 @@ export function NotesLibraryPage() {
     setSearchParams(next);
   };
 
-  const pdfResources = resources.filter((r) => r.file_url);
-  const markdownResources = resources.filter((r) => !r.file_url && r.content_markdown);
+  const pdfResources = resources.filter((r) => r.file_url || r.file_path);
+  const markdownResources = resources.filter((r) => !r.file_url && !r.file_path && r.content_markdown);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">

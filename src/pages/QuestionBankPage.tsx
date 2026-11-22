@@ -1,20 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Eye, EyeOff, HelpCircle } from 'lucide-react';
-import type { Question, Subject } from '@shared/types';
+import type { Question, Resource, Subject } from '@shared/types';
 import { api } from '@/lib/api';
 import { useStudy } from '@/context/StudyContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { QuestionCard } from '@/components/study/QuestionCard';
+import { PdfViewerModal } from '@/components/study/PdfViewerModal';
+import { ResourceFileCard } from '@/pages/SubjectDetailPage';
 
 export function QuestionBankPage() {
   const { selection, practicedQuestionIds } = useStudy();
   const [searchParams, setSearchParams] = useSearchParams();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [bankResources, setBankResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bankLoading, setBankLoading] = useState(true);
   const [revealAllKey, setRevealAllKey] = useState(0);
   const [revealAllDefault, setRevealAllDefault] = useState(false);
 
@@ -53,6 +57,24 @@ export function QuestionBankPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [subjectParam, subjects, typeFilter, impFilter, diffFilter, solvedOnly]);
+
+  useEffect(() => {
+    const matchedSubject = subjects.find(
+      (s) => s.code.toLowerCase() === subjectParam.toLowerCase() || String(s.id) === subjectParam
+    );
+    setBankLoading(true);
+    api
+      .getResources({
+        subjectId: matchedSubject?.id,
+        category: 'Question Banks',
+        importance: impFilter !== 'all' ? impFilter : undefined,
+        schemeId: selection.schemeId,
+        semesterId: selection.semesterId,
+      })
+      .then(setBankResources)
+      .catch(console.error)
+      .finally(() => setBankLoading(false));
+  }, [subjectParam, subjects, impFilter, selection.schemeId, selection.semesterId]);
 
   const practicedCount = questions.filter((q) => practicedQuestionIds.includes(q.id)).length;
 
@@ -149,26 +171,63 @@ export function QuestionBankPage() {
         </CardContent>
       </Card>
 
-      {loading ? (
+      {loading || bankLoading ? (
         <div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-800" />
-      ) : questions.length === 0 ? (
+      ) : questions.length === 0 && bankResources.length === 0 ? (
         <Card className="mt-6">
           <CardContent className="p-8 text-center text-sm text-slate-500">
-            No questions match your current filters.
+            No question banks or questions match your current filters.
           </CardContent>
         </Card>
       ) : (
-        <div className="mt-6 space-y-3">
-          {questions.map((q) => (
-            <QuestionCard
-              key={`${q.id}-${revealAllKey}`}
-              question={q}
-              defaultRevealed={revealAllDefault}
-              showSubjectBadge
-            />
-          ))}
+        <div className="mt-6 space-y-8">
+          {bankResources.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-base font-bold text-slate-900 dark:text-white">
+                Uploaded Question Bank PDFs ({bankResources.length})
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {bankResources.map((resource) => (
+                  <ResourceFileCard
+                    key={resource.id}
+                    resource={resource}
+                    onPreview={(url) => setPdfPreview({ ...resource, file_url: url || resource.file_url })}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              Practice Questions
+            </h2>
+            {questions.length === 0 ? (
+              <Card>
+                <CardContent className="p-6 text-center text-sm text-slate-500">
+                  No structured questions match your current filters.
+                </CardContent>
+              </Card>
+            ) : (
+              questions.map((q) => (
+              <QuestionCard
+                key={`${q.id}-${revealAllKey}`}
+                question={q}
+                defaultRevealed={revealAllDefault}
+                showSubjectBadge
+              />
+              ))
+            )}
+          </section>
         </div>
       )}
+      <PdfViewerModal
+        open={Boolean(pdfPreview)}
+        onClose={() => setPdfPreview(null)}
+        title={pdfPreview?.title || ''}
+        fileUrl={pdfPreview?.file_url || null}
+        fileName={pdfPreview?.file_name}
+        fileSizeBytes={pdfPreview?.file_size_bytes}
+      />
     </div>
   );
 }

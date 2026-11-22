@@ -205,16 +205,61 @@ export const api = {
 
   getResources: async (filters?: {
     subjectId?: number; moduleId?: number; resourceType?: string; examType?: string; importance?: string;
-    schemeId?: number; semesterId?: number; includeUnpublished?: boolean;
+    schemeId?: number; semesterId?: number; category?: string; includeUnpublished?: boolean;
   }): Promise<Resource[]> => {
     let query = getSupabase().from('resources').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)').order('created_at', { ascending: false });
-    query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId, exam_type: filters?.examType, importance: filters?.importance, scheme_id: filters?.schemeId, semester_id: filters?.semesterId });
+    query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId, exam_type: filters?.examType, importance: filters?.importance, scheme_id: filters?.schemeId, semester_id: filters?.semesterId, category: filters?.category });
     if (filters?.resourceType) {
       const types = filters.resourceType.split(',').map((value) => value.trim()).filter(Boolean);
       if (types.length > 1) query = query.in('resource_type', types);
       else if (types.length === 1) query = query.eq('resource_type', types[0]);
     }
     return (await result<Row[]>(query)).map(mapResource);
+  },
+
+  getSyllabi: async (filters?: { subjectId?: number; schemeId?: number; semesterId?: number }): Promise<Resource[]> => {
+    let query = getSupabase()
+      .from('subject_syllabi')
+      .select('*, subject:subjects!inner(id,code,name,scheme_id,semester_id,academic_year_id)')
+      .eq('is_published', true)
+      .order('subject_id');
+    if (filters?.subjectId) query = query.eq('subject_id', filters.subjectId);
+    if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
+    if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
+    const rows = await result<Row[]>(query);
+    return rows.map((row) => ({
+      id: -Number(row.id),
+      subject_id: row.subject_id,
+      module_id: null,
+      topic_id: null,
+      academic_year_id: row.subject?.academic_year_id ?? null,
+      scheme_id: row.subject?.scheme_id ?? null,
+      semester_id: row.subject?.semester_id ?? null,
+      title: row.title,
+      description: row.description,
+      resource_type: 'syllabus',
+      source_category: 'official_document',
+      importance: 'important',
+      content_format: 'pdf',
+      exam_type: null,
+      exam_year: null,
+      content_markdown: null,
+      diagram_key: null,
+      file_url: null,
+      file_path: row.file_path,
+      file_name: row.file_name,
+      file_size_bytes: row.file_size_bytes,
+      mime_type: row.mime_type,
+      category: 'Official Syllabus',
+      is_published: row.is_published,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      subject_code: row.subject?.code,
+      subject_name: row.subject?.name,
+      module_number: null,
+      module_title: null,
+      topic_title: null,
+    } as Resource));
   },
 
   getQuestions: async (filters?: {
