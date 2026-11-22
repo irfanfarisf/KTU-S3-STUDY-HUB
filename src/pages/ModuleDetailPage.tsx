@@ -327,7 +327,7 @@ export function ModuleDetailPage() {
           ) : (
             <div className="space-y-3">
               {originalNotes.map((doc) => (
-                <ResourceFileCard key={doc.id} resource={doc} onPreview={() => setPdfPreview(doc)} />
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
               ))}
             </div>
           )}
@@ -344,7 +344,7 @@ export function ModuleDetailPage() {
           ) : (
             <div className="space-y-3">
               {handwrittenNotes.map((doc) => (
-                <ResourceFileCard key={doc.id} resource={doc} onPreview={() => setPdfPreview(doc)} />
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
               ))}
             </div>
           )}
@@ -399,7 +399,7 @@ export function ModuleDetailPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {[...modulePyqs, ...subjectLevelPapers].map((doc) => (
-              <ResourceFileCard key={doc.id} resource={doc} onPreview={() => setPdfPreview(doc)} />
+              <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
             ))}
           </div>
         )}

@@ -170,9 +170,11 @@ export interface Resource {
   content_markdown: string | null;
   diagram_key: string | null;
   file_url: string | null;
+  file_path?: string | null;
   file_name: string | null;
   file_size_bytes: number | null;
   mime_type: string | null;
+  category?: string | null;
   is_published: boolean;
   created_at: string;
   updated_at: string;
@@ -185,6 +187,18 @@ export interface Resource {
   scheme_name?: string | null;
   semester_code?: string | null;
   academic_year_label?: string | null;
+}
+
+export interface SubjectSyllabus {
+  id: number;
+  subject_id: number;
+  title: string;
+  description: string;
+  file_path: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: string;
+  is_published: boolean;
 }
 
 export interface Answer {

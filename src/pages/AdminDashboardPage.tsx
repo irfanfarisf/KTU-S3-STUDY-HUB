@@ -50,10 +50,14 @@ export function AdminDashboardPage() {
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
+  const [subjectSyllabus, setSubjectSyllabus] = useState<{ file_path: string; file_name: string; is_published: boolean; title: string } | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [programs, setPrograms] = useState<ProgramItem[]>([]);
   const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
   const [cmsSearch, setCmsSearch] = useState('');
+  const [resourceCategoryFilter, setResourceCategoryFilter] = useState('all');
+  const [resourceTypeFilter, setResourceTypeFilter] = useState('all');
+  const [resourceModuleFilter, setResourceModuleFilter] = useState('all');
 
   // Form states: Subject
   const [subForm, setSubForm] = useState({
@@ -96,11 +100,22 @@ export function AdminDashboardPage() {
     exam_year: '',
     content_markdown: '',
     file_url: '',
+    file_path: '',
     file_name: '',
     file_size_bytes: 0,
     mime_type: '',
   });
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [resourceEntryMode, setResourceEntryMode] = useState<'custom' | 'upload'>('custom');
+  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadCategory, setUploadCategory] = useState('Study Notes');
+  const [uploadModuleId, setUploadModuleId] = useState('');
+  const [uploadDescription, setUploadDescription] = useState('');
+  const [uploadPublished, setUploadPublished] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadOverrides, setUploadOverrides] = useState<Record<string, { title: string; category: string }>>({});
+  const uploadKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
 
   // Form states: Question
   const [qForm, setQForm] = useState({
@@ -187,6 +202,7 @@ export function AdminDashboardPage() {
       setModules(detail.modules);
       setTopics(detail.topics);
       setResources(resList);
+      setSubjectSyllabus(detail.syllabus);
       setQuestions(qList);
       setPrograms(pList);
       setRevisionItems(rList);
@@ -230,6 +246,7 @@ export function AdminDashboardPage() {
       setResForm((f) => ({
         ...f,
         file_url: uploaded.file_url,
+        file_path: uploaded.file_path,
         file_name: uploaded.file_name,
         file_size_bytes: uploaded.file_size_bytes,
         mime_type: uploaded.mime_type,
@@ -770,6 +787,46 @@ export function AdminDashboardPage() {
         <div className="mt-5 grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-1">
             <CardContent className="p-5">
+              <div className="mb-4 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+                {(['custom', 'upload'] as const).map((mode) => <button key={mode} type="button" onClick={() => setResourceEntryMode(mode)} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${resourceEntryMode === mode ? 'bg-white text-indigo-700 shadow-sm dark:bg-slate-950 dark:text-indigo-300' : 'text-slate-500'}`}>{mode === 'custom' ? 'Custom Entry' : 'Upload Files'}</button>)}
+              </div>
+              {resourceEntryMode === 'upload' ? <>
+                <h2 className="text-base font-bold">Upload study resources</h2>
+                <p className="mt-1 text-xs text-slate-500">Files are attached to {activeSubject?.code} ({activeSubject?.branch_code}, {activeSubject?.semester_code}).</p>
+                <div className="mt-3 space-y-3">
+                  <Select value={uploadModuleId} onChange={(e) => setUploadModuleId(e.target.value)}><option value="">Subject-wide</option>{modules.map((m) => <option key={m.id} value={m.id}>Module {m.module_number}: {m.title}</option>)}</Select>
+                  <Select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)}>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
+                  <Input placeholder="Title (used for one file)" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} />
+                  <Textarea rows={2} placeholder="Description (optional)" value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} />
+                  <label className="block cursor-pointer rounded-xl border-2 border-dashed border-indigo-300 p-5 text-center text-xs text-slate-600 dark:border-indigo-800 dark:text-slate-300" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setUploadQueue((q) => [...q, ...Array.from(e.dataTransfer.files)]); }}>
+                    <Upload className="mx-auto mb-2 h-5 w-5 text-indigo-600" />Drop files here or <span className="font-semibold text-indigo-600">browse files</span><input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={(e) => setUploadQueue((q) => [...q, ...Array.from(e.target.files || [])])} /><span className="mt-1 block text-[10px]">PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP • max 25 MB each</span>
+                  </label>
+                  {uploadQueue.map((f, i) => <div key={`${f.name}-${i}`} className="space-y-2 rounded-lg border p-2"><span className="block truncate text-xs">{f.name} · {(f.size / 1048576).toFixed(2)} MB</span><Input placeholder="Title (defaults to file name)" value={uploadOverrides[uploadKey(f)]?.title || ''} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: e.target.value, category: v[uploadKey(f)]?.category || uploadCategory } }))} /><Select value={uploadOverrides[uploadKey(f)]?.category || uploadCategory} onChange={(e) => setUploadOverrides((v) => ({ ...v, [uploadKey(f)]: { title: v[uploadKey(f)]?.title || '', category: e.target.value } }))}>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select><button type="button" onClick={() => setUploadQueue((q) => q.filter((_, n) => n !== i))} className="text-xs text-rose-600">Remove</button></div>)}
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={uploadPublished} onChange={(e) => setUploadPublished(e.target.checked)} />Publish immediately</label>
+                  {uploadProgress && <p className="text-xs text-indigo-600">{uploadProgress}</p>}
+                  <Button className="w-full" disabled={!uploadQueue.length || uploadingFile} onClick={async () => {
+                    if (!uploadQueue.length) return;
+                    setUploadingFile(true);
+                    let completed = 0;
+                    const filesToUpload = [...uploadQueue];
+                    try {
+                      for (const [index, file] of filesToUpload.entries()) {
+                        setUploadProgress(`Uploading ${index + 1} of ${filesToUpload.length}: ${file.name}`);
+                        const uploaded = await api.uploadFile(file);
+                        const category = uploadOverrides[uploadKey(file)]?.category || uploadCategory;
+                        const categoryType: Record<string, string> = {'Study Notes':'exam_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Important Questions':'exam_notes','Reference Materials':'reference_notes','Assignments':'exam_notes','Other Resources':'exam_notes'};
+                        await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (uploadQueue.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: 'pdf', file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
+                        completed++;
+                        setUploadQueue((queue) => queue.filter((queued) => uploadKey(queued) !== uploadKey(file)));
+                      }
+                      setUploadQueue([]); setUploadOverrides({}); setUploadTitle(''); setUploadDescription(''); setUploadProgress('');
+                      await loadSubjectScopedData(selectedSubjectId); await loadSubjects();
+                      notify('ok', `Uploaded ${completed} resource${completed === 1 ? '' : 's'}.`);
+                    } catch (err) { notify('err', (err as Error).message); }
+                    finally { setUploadingFile(false); }
+                  }}>{uploadingFile ? 'Uploading…' : `Upload ${uploadQueue.length || ''} File${uploadQueue.length === 1 ? '' : 's'}`}</Button>
+                </div>
+              </> : <>
               <h2 className="text-base font-bold">
                 Publish Resource / PDF ({activeSubject?.code})
               </h2>
@@ -790,6 +847,7 @@ export function AdminDashboardPage() {
                       exam_year: resForm.exam_year || null,
                       content_markdown: resForm.content_markdown || null,
                       file_url: resForm.file_url || null,
+                      file_path: resForm.file_path || null,
                       file_name: resForm.file_name || null,
                       file_size_bytes: resForm.file_size_bytes || null,
                       mime_type: resForm.mime_type || null,
@@ -800,6 +858,7 @@ export function AdminDashboardPage() {
                       description: '',
                       content_markdown: '',
                       file_url: '',
+                      file_path: '',
                       file_name: '',
                       file_size_bytes: 0,
                     }));
@@ -907,6 +966,14 @@ export function AdminDashboardPage() {
                   Publish Resource
                 </Button>
               </form>
+              </>}
+              <div className="mt-5 border-t pt-4 dark:border-slate-800">
+                <h3 className="text-sm font-bold">Official Syllabus PDF</h3>
+                <p className="mt-1 text-xs text-slate-500">Separate PDF attachment for this subject.</p>
+                {subjectSyllabus && <p className="my-2 truncate text-xs">{subjectSyllabus.file_name} · {subjectSyllabus.is_published ? 'Published' : 'Draft'}</p>}
+                <label className="mt-2 inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-xs font-medium"><FileUp className="mr-1 h-3.5 w-3.5"/>{subjectSyllabus ? 'Replace syllabus PDF' : 'Upload syllabus PDF'}<input type="file" accept=".pdf,application/pdf" className="sr-only" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const title = window.prompt('Optional syllabus title', subjectSyllabus?.title || 'Official Syllabus') || 'Official Syllabus'; const description = window.prompt('Optional description', '') || ''; await api.saveSyllabus(selectedSubjectId, file, { title, description, is_published: true }); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Official syllabus uploaded.'); } catch (error) { notify('err', (error as Error).message); } finally { e.target.value = ''; } }} /></label>
+                {subjectSyllabus && <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const title = window.prompt('Syllabus title', subjectSyllabus.title); if (title === null) return; const description = window.prompt('Syllabus description', ''); await api.updateSyllabusMetadata(selectedSubjectId, { title, description: description || '' }); await loadSubjectScopedData(selectedSubjectId); }}>Edit details</Button><Button size="sm" variant="outline" onClick={async () => { await api.setSyllabusPublished(selectedSubjectId, !subjectSyllabus.is_published); await loadSubjectScopedData(selectedSubjectId); }}> {subjectSyllabus.is_published ? 'Unpublish' : 'Publish'} </Button><Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm('Delete the official syllabus PDF?')) return; await api.deleteSyllabus(selectedSubjectId); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Syllabus deleted.'); }}><Trash2 className="h-4 w-4 text-rose-500"/>Delete</Button></div>}
+              </div>
             </CardContent>
           </Card>
 
@@ -915,6 +982,11 @@ export function AdminDashboardPage() {
               <h2 className="mb-3 text-base font-bold">
                 Resources for {activeSubject?.code} ({resources.length})
               </h2>
+              <div className="mb-3 grid gap-2 sm:grid-cols-3">
+                <Select value={resourceModuleFilter} onChange={(e) => setResourceModuleFilter(e.target.value)}><option value="all">All modules</option><option value="none">Subject-wide</option>{modules.map((m) => <option key={m.id} value={String(m.id)}>Module {m.module_number}</option>)}</Select>
+                <Select value={resourceCategoryFilter} onChange={(e) => setResourceCategoryFilter(e.target.value)}><option value="all">All categories</option>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
+                <Select value={resourceTypeFilter} onChange={(e) => setResourceTypeFilter(e.target.value)}><option value="all">All file types</option>{['pdf','doc','docx','jpg','jpeg','png','webp'].map((ext) => <option key={ext} value={ext}>{ext.toUpperCase()}</option>)}</Select>
+              </div>
               <div className="space-y-2.5">
                 {resources
                   .filter(
@@ -923,6 +995,9 @@ export function AdminDashboardPage() {
                       r.title.toLowerCase().includes(cmsSearch.toLowerCase()) ||
                       r.resource_type.includes(cmsSearch.toLowerCase())
                   )
+                  .filter((r) => resourceCategoryFilter === 'all' || r.category === resourceCategoryFilter)
+                  .filter((r) => resourceModuleFilter === 'all' || (resourceModuleFilter === 'none' ? !r.module_id : String(r.module_id) === resourceModuleFilter))
+                  .filter((r) => resourceTypeFilter === 'all' || r.file_name?.toLowerCase().endsWith(`.${resourceTypeFilter}`))
                   .map((r) => (
                     <div
                       key={r.id}
@@ -939,6 +1014,20 @@ export function AdminDashboardPage() {
                         <div className="mt-1 truncate text-sm font-semibold">{r.title}</div>
                       </div>
                       <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            const title = window.prompt('Resource title', r.title);
+                            if (!title?.trim()) return;
+                            const description = window.prompt('Description', r.description || '');
+                            const category = window.prompt('Category', r.category || 'Other Resources');
+                            const categoryType: Record<string, string> = {'Study Notes':'exam_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Reference Materials':'reference_notes'};
+                            await api.patchResource(r.id, { title: title.trim(), description: description ?? r.description, category: category || r.category, resource_type: categoryType[category || ''] || r.resource_type });
+                            await loadSubjectScopedData(selectedSubjectId);
+                          }}
+                        >Edit</Button>
+                        {r.file_path && <label className="inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-xs font-medium"><FileUp className="mr-1 h-3.5 w-3.5"/>Replace<input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await api.replaceResourceFile(r.id, file); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Resource file replaced.'); } catch (error) { notify('err', (error as Error).message); } finally { e.target.value = ''; } }} /></label>}
                         <Button
                           size="sm"
                           variant="outline"

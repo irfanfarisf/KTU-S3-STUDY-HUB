@@ -155,7 +155,7 @@ export function NotesLibraryPage() {
                   <ResourceFileCard
                     key={doc.id}
                     resource={doc}
-                    onPreview={() => setPdfPreview(doc)}
+                    onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })}
                   />
                 ))}
               </div>

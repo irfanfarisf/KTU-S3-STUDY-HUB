@@ -57,6 +57,10 @@ export function SubjectDetailPage() {
   const [impFilter, setImpFilter] = useState<string>('all');
   const [qTypeFilter, setQTypeFilter] = useState<string>('all');
   const [pdfPreview, setPdfPreview] = useState<Resource | null>(null);
+  const showPreview = async (resource: Resource) => {
+    try { setPdfPreview({ ...resource, file_url: await api.resourceFileUrl(resource) }); }
+    catch (error) { console.error(error); }
+  };
 
   const { isBookmarked, toggleBookmark, completedTopicIds } = useStudy();
 
@@ -125,6 +129,7 @@ export function SubjectDetailPage() {
   );
 
   const syllabusDocs = resources.filter((r) => r.resource_type === 'syllabus');
+  const officialSyllabus = data.syllabus || syllabusDocs.find((r) => r.is_published) || null;
   const paperDocs = resources.filter((r) =>
     ['pyq', 'model_paper', 'solved_paper'].includes(r.resource_type)
   );
@@ -425,19 +430,19 @@ export function SubjectDetailPage() {
                       {subject.syllabus_summary}
                     </p>
                   </div>
-                  {syllabusDocs[0]?.file_url && (
+                  {officialSyllabus ? (
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setPdfPreview(syllabusDocs[0])}
+                        onClick={async () => { const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const url = legacy ? await api.resourceFileUrl(officialSyllabus as Resource) : await api.syllabusUrl(officialSyllabus.file_path!); setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' }); }}
                       >
                         <Eye className="h-3.5 w-3.5" />
                         Preview Syllabus PDF
                       </Button>
                       <a
-                        href={`${syllabusDocs[0].file_url}?download=1`}
-                        download={syllabusDocs[0].file_name || 'syllabus.pdf'}
+                        href="#official-syllabus-download"
+                        onClick={async (e) => { e.preventDefault(); const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const url = legacy ? await api.resourceFileUrl(officialSyllabus as Resource, true) : await api.syllabusUrl(officialSyllabus.file_path!, true); if (url) window.open(url, '_blank', 'noopener'); }}
                       >
                         <Button size="sm">
                           <Download className="h-3.5 w-3.5" />
@@ -445,7 +450,7 @@ export function SubjectDetailPage() {
                         </Button>
                       </a>
                     </div>
-                  )}
+                  ) : <Badge variant="outline">Official syllabus PDF not uploaded yet</Badge>}
                 </div>
               </CardContent>
             </Card>
@@ -562,7 +567,7 @@ export function SubjectDetailPage() {
                 <ResourceFileCard
                   key={doc.id}
                   resource={doc}
-                  onPreview={() => setPdfPreview(doc)}
+                  onPreview={() => showPreview(doc)}
                 />
               ))
             )}
@@ -584,7 +589,7 @@ export function SubjectDetailPage() {
                 <ResourceFileCard
                   key={doc.id}
                   resource={doc}
-                  onPreview={() => setPdfPreview(doc)}
+                  onPreview={() => showPreview(doc)}
                 />
               ))
             )}
@@ -753,11 +758,13 @@ export function ResourceFileCard({
   onPreview,
 }: {
   resource: Resource;
-  onPreview: () => void;
+  onPreview: (url?: string) => void;
 }) {
   const { isBookmarked, toggleBookmark } = useStudy();
   const bKey = `resource:${resource.id}`;
   const bookmarked = isBookmarked(bKey);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(resource.file_url);
+  useEffect(() => { let active = true; api.resourceFileUrl(resource, true).then((url) => { if (active) setDownloadUrl(url); }).catch(() => {}); return () => { active = false; }; }, [resource.id, resource.file_path, resource.file_url]);
 
   return (
     <Card>
@@ -766,7 +773,7 @@ export function ResourceFileCard({
           <div className="flex items-start justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               {resource.subject_code && <Badge variant="indigo">{resource.subject_code}</Badge>}
-              <Badge variant="blue">{RESOURCE_TYPE_LABELS[resource.resource_type]}</Badge>
+              <Badge variant="blue">{resource.category || RESOURCE_TYPE_LABELS[resource.resource_type]}</Badge>
               {resource.module_number && (
                 <Badge variant="outline">Module {resource.module_number}</Badge>
               )}
@@ -808,14 +815,14 @@ export function ResourceFileCard({
           </div>
         </div>
 
-        {resource.file_url && (
+        {(resource.file_url || resource.file_path) && (
           <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
-            <Button size="sm" variant="outline" className="flex-1" onClick={onPreview}>
+            <Button size="sm" variant="outline" className="flex-1" onClick={async () => { try { onPreview((await api.resourceFileUrl(resource)) || undefined); } catch (error) { console.error(error); } }}>
               <Eye className="h-3.5 w-3.5" />
               Preview PDF
             </Button>
             <a
-              href={`${resource.file_url}?download=1`}
+              href={downloadUrl || undefined}
               download={resource.file_name || 'resource.pdf'}
               className="flex-1"
             >

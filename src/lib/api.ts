@@ -8,6 +8,7 @@ import type {
   RevisionItem,
   SearchResultItem,
   Subject,
+  SubjectSyllabus,
   Topic,
 } from '@shared/types';
 import { getSupabase, supabase } from '@/lib/supabase';
@@ -110,6 +111,7 @@ export interface SubjectDetailResponse {
   questions: Question[];
   programs: ProgramItem[];
   revisionItems: RevisionItem[];
+  syllabus: SubjectSyllabus | null;
 }
 
 export interface ModuleDetailResponse extends SubjectDetailResponse {
@@ -163,13 +165,14 @@ export const api = {
     if (!subjectRow) throw new Error('Subject not found.');
     const subject = mapSubject(subjectRow);
     const subjectId = subjectRow.id;
-    const [modules, topics, resources, questions, programs, revisionItems] = await Promise.all([
+    const [modules, topics, resources, questions, programs, revisionItems, syllabus] = await Promise.all([
       result<Row[]>(db.from('modules').select('*').eq('subject_id', subjectId).order('module_number')),
       result<Row[]>(db.from('topics').select('*').eq('subject_id', subjectId).order('sort_order').order('id')),
       result<Row[]>(db.from('resources').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)').eq('subject_id', subjectId).order('created_at', { ascending: false })),
       result<Row[]>(db.from('questions').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), answers(*)').eq('subject_id', subjectId).order('id')),
       result<Row[]>(db.from('programs').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('id')),
       result<Row[]>(db.from('revision_items').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('sort_order').order('id')),
+      result<Row | null>(db.from('subject_syllabi').select('*').eq('subject_id', subjectId).maybeSingle()),
     ]);
     return {
       subject,
@@ -179,6 +182,7 @@ export const api = {
       questions: questions.map(mapQuestion),
       programs: programs.map(mapProgram),
       revisionItems: revisionItems.map(mapRevision),
+      syllabus: syllabus as SubjectSyllabus | null,
     };
   },
 
@@ -337,13 +341,25 @@ export const api = {
     return { user: admin };
   },
   uploadFile: async (file: File) => {
+    const allowed = new Set(['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','image/jpeg','image/png','image/webp','text/plain','text/markdown']);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['pdf','doc','docx','jpg','jpeg','png','webp','md','txt'].includes(ext || '') || !allowed.has(file.type)) throw new Error('Choose a PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP, or supported text file.');
+    if (!file.size || file.size > 25 * 1024 * 1024) throw new Error('File size must be between 1 byte and 25 MB.');
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-100);
     const path = `${crypto.randomUUID()}-${safeName}`;
     const storage = getSupabase().storage.from('study-resources');
     const { error } = await storage.upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
     if (error) throw new Error(error.message);
-    const { data } = storage.getPublicUrl(path);
-    return { file_url: data.publicUrl, file_name: file.name, stored_name: path, file_size_bytes: file.size, mime_type: file.type };
+    return { file_url: '', file_path: path, file_name: file.name, stored_name: path, file_size_bytes: file.size, mime_type: file.type };
+  },
+  resourceFileUrl: async (resource: Resource, download = false): Promise<string | null> => {
+    if (resource.file_path) {
+      const { data, error } = await getSupabase().storage.from('study-resources').createSignedUrl(resource.file_path, 300, { download: download ? resource.file_name || true : undefined });
+      if (error) throw new Error(error.message);
+      return data.signedUrl;
+    }
+    if (!resource.file_url) return null;
+    return download ? `${resource.file_url}${resource.file_url.includes('?') ? '&' : '?'}download=1` : resource.file_url;
   },
 
   createBranch: async (payload: { name: string; code: string; short_name?: string; description?: string }) => ({ id: await insertId('branches', { ...payload, code: payload.code.toUpperCase(), short_name: payload.short_name || payload.code.toUpperCase() }) }),
@@ -359,9 +375,31 @@ export const api = {
     return { id: await insertId('topics', { ...payload, title, slug }) };
   },
   deleteTopic: async (id: number) => deleteRow('topics', id),
-  createResource: async (payload: Record<string, unknown>) => ({ id: await insertId('resources', { ...payload, content_format: payload.content_format || (payload.file_url ? 'pdf' : 'markdown') }) }),
+  createResource: async (payload: Record<string, unknown>) => ({ id: await insertId('resources', { ...payload, content_format: payload.content_format || (payload.file_url || payload.file_path ? 'pdf' : 'markdown') }) }),
   patchResource: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('resources').update(payload).eq('id', id)); return { ok: true }; },
-  deleteResource: async (id: number) => deleteRow('resources', id),
+  deleteResource: async (id: number) => {
+    const row = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());
+    await deleteRow('resources', id);
+    if (row?.file_path) await getSupabase().storage.from('study-resources').remove([row.file_path]);
+  },
+  replaceResourceFile: async (id: number, file: File) => {
+    const current = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());
+    const next = await api.uploadFile(file);
+    await result(getSupabase().from('resources').update({ file_path: next.file_path, file_url: null, file_name: next.file_name, file_size_bytes: next.file_size_bytes, mime_type: next.mime_type, content_format: 'pdf' }).eq('id', id));
+    if (current?.file_path) await getSupabase().storage.from('study-resources').remove([current.file_path]);
+  },
+  saveSyllabus: async (subjectId: number, file: File, metadata: { title?: string; description?: string; is_published: boolean }) => {
+    if (file.type !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Official syllabi must be PDF files.');
+    if (!file.size || file.size > 25 * 1024 * 1024) throw new Error('Syllabus PDF must be smaller than 25 MB.');
+    const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path').eq('subject_id', subjectId).maybeSingle());
+    const upload = await api.uploadFile(file);
+    await result(getSupabase().from('subject_syllabi').upsert({ subject_id: subjectId, title: metadata.title || 'Official Syllabus', description: metadata.description || '', file_path: upload.file_path, file_name: file.name, file_size_bytes: file.size, mime_type: file.type, is_published: metadata.is_published, updated_at: new Date().toISOString() }, { onConflict: 'subject_id' }));
+    if (old?.file_path) await getSupabase().storage.from('study-resources').remove([old.file_path]);
+  },
+  setSyllabusPublished: async (subjectId: number, is_published: boolean) => { await result(getSupabase().from('subject_syllabi').update({ is_published }).eq('subject_id', subjectId)); },
+  updateSyllabusMetadata: async (subjectId: number, metadata: { title: string; description: string }) => { await result(getSupabase().from('subject_syllabi').update(metadata).eq('subject_id', subjectId)); },
+  deleteSyllabus: async (subjectId: number) => { const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path').eq('subject_id', subjectId).maybeSingle()); await result(getSupabase().from('subject_syllabi').delete().eq('subject_id', subjectId)); if (old?.file_path) await getSupabase().storage.from('study-resources').remove([old.file_path]); },
+  syllabusUrl: async (path: string, download = false) => { const { data, error } = await getSupabase().storage.from('study-resources').createSignedUrl(path, 300, { download: download ? true : undefined }); if (error) throw new Error(error.message); return data.signedUrl; },
   createQuestion: async (payload: Record<string, unknown>) => {
     const question = { ...payload };
     const answerFields = ['short_answer', 'detailed_explanation', 'code_snippet', 'code_language', 'formula_text', 'diagram_key', 'expected_marks'];

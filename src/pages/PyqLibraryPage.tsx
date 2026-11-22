@@ -127,7 +127,7 @@ export function PyqLibraryPage() {
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {papers.map((doc) => (
-            <ResourceFileCard key={doc.id} resource={doc} onPreview={() => setPdfPreview(doc)} />
+            <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
           ))}
         </div>
       )}
