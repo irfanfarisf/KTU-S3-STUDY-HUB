@@ -194,7 +194,13 @@ export const api = {
     ]);
     return {
       subject,
-      modules: modules as ModuleItem[],
+      modules: modules.map((module) => ({
+        ...module,
+        resource_count: resources.filter((resource) => resource.module_id === module.id && resource.is_published).length,
+        question_count: questions.filter((question) => question.module_id === module.id && question.is_published).length,
+        program_count: programs.filter((program) => program.module_id === module.id && program.is_published).length,
+        topic_count: topics.filter((topic) => topic.module_id === module.id && topic.is_published).length,
+      } as unknown as ModuleItem)),
       topics: topics as Topic[],
       resources: resources.map(mapResource),
       questions: questions.map(mapQuestion),
@@ -515,8 +521,10 @@ export const api = {
   patchQuestion: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('questions').update(payload).eq('id', id)); return { ok: true }; },
   deleteQuestion: async (id: number) => deleteRow('questions', id),
   createProgram: async (payload: Record<string, unknown>) => ({ id: await insertId('programs', { ...payload, problem_statement: payload.problem_statement || payload.description || '' }) }),
+  patchProgram: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('programs').update(payload).eq('id', id)); return { ok: true }; },
   deleteProgram: async (id: number) => deleteRow('programs', id),
   createRevisionItem: async (payload: Record<string, unknown>) => ({ id: await insertId('revision_items', payload) }),
+  patchRevisionItem: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('revision_items').update(payload).eq('id', id)); return { ok: true }; },
   deleteRevisionItem: async (id: number) => deleteRow('revision_items', id),
   bulkImport: async (payload: { entityType: 'questions' | 'topics' | 'resources' | 'programs' | 'revision_items'; subjectId: number; moduleId?: number | null; items: Array<Record<string, unknown>> }) => {
     let inserted = 0;

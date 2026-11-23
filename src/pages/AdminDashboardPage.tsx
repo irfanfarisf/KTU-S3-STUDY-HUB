@@ -18,6 +18,7 @@ import {
 import type { ModuleItem, ProgramItem, Question, Resource, RevisionItem, Subject, Topic } from '@shared/types';
 import { api } from '@/lib/api';
 import { GENERATED_S3_PACK } from '@/data/generatedS3Pack';
+import { EXPANDED_S3_PACK } from '@/data/expandedS3Pack';
 import { useStudy } from '@/context/StudyContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -262,60 +263,120 @@ export function AdminDashboardPage() {
   };
 
   const publishGeneratedPack = async () => {
-    const subject = subjects.find((row) => row.id === selectedSubjectId);
-    const pack = subject ? GENERATED_S3_PACK[subject.code] : null;
-    if (!subject || !pack) {
-      notify('err', 'The generated study pack is not configured for this subject.');
+    const subjectCodes = Object.keys(EXPANDED_S3_PACK);
+    const targets = subjects.filter((row) => subjectCodes.includes(row.code));
+    if (targets.length !== subjectCodes.length) {
+      notify('err', `Could not find all six configured subjects in this academic scope (found ${targets.length}).`);
       return;
     }
     setPublishingGeneratedPack(true);
     try {
-      const detail = await api.getSubjectDetail(subject.id, true);
-      const moduleNumberExists = (number: number) => detail.modules.some((module) => module.module_number === number);
-      const notes = pack.filter((item) => moduleNumberExists(item.module_number) && !resources.some((row) => row.title === `Generated Exam Notes — Module ${item.module_number}`)).map((item) => ({
-        module_number: item.module_number,
-        scheme_id: subject.scheme_id,
-        semester_id: subject.semester_id,
-        academic_year_id: subject.academic_year_id,
-        title: `Generated Exam Notes — Module ${item.module_number}`,
-        description: `Original, syllabus-aligned revision notes for ${subject.code} Module ${item.module_number}. Prepared by synthesizing the supplied KTU syllabus, notes, question bank and exam papers.`,
-        resource_type: 'exam_notes', source_category: 'simplified_ai_notes', importance: 'important', content_format: 'markdown', content_markdown: item.note, is_published: true,
-      }));
-      const newQuestions = pack.filter((item) => moduleNumberExists(item.module_number) && !questions.some((row) =>
-        row.module_id === detail.modules.find((module) => module.module_number === item.module_number)?.id &&
-        row.question_text === item.question && row.source_label === 'Generated S3 Study Pack — syllabus/source synthesis'
-      )).map((item) => ({
-        module_number: item.module_number,
-        question_text: item.question,
-        question_type: 'descriptive', marks: 5, difficulty: 'medium', importance: 'must_study',
-        source_label: 'Generated S3 Study Pack — syllabus/source synthesis', source_category: 'practice_material', is_important: true,
-        short_answer: item.answer, detailed_explanation: item.answer, expected_marks: 5, is_published: true,
-      }));
-      const appliedExamples = pack.filter((item) => moduleNumberExists(item.module_number) && !programs.some((row) => row.title === `Worked Example — Module ${item.module_number}: ${item.exampleTitle}`)).map((item) => ({
-        module_number: item.module_number, title: `Worked Example — Module ${item.module_number}: ${item.exampleTitle}`, description: item.problem,
-        problem_statement: item.problem, language: 'text', code: item.workedExample, explanation: item.workedExample,
-        importance: 'important', is_published: true,
-      }));
-      const cards = pack.flatMap((item) => [
-        { module_number: item.module_number, title: item.revisionTitle, content_markdown: item.revision, category: 'concept', importance: 'must_study', is_published: true },
-        { module_number: item.module_number, title: item.revision2Title, content_markdown: item.revision2, category: 'concept', importance: 'important', is_published: true },
-      ]).filter((item) => moduleNumberExists(item.module_number) && !revisionItems.some((row) => row.title === item.title));
-      const operations = [
-        ['resources', notes], ['questions', newQuestions], ['programs', appliedExamples], ['revision_items', cards],
-      ] as const;
       let inserted = 0;
-      for (const [entityType, items] of operations) {
-        if (items.length) {
+      let archived = 0;
+      for (const subject of targets) {
+        const basePack = GENERATED_S3_PACK[subject.code];
+        const expandedPack = EXPANDED_S3_PACK[subject.code];
+        if (!basePack || !expandedPack) continue;
+        const detail = await api.getSubjectDetail(subject.id, true);
+        const moduleMap = new Map(detail.modules.map((module) => [module.module_number, module]));
+        const expectedNumbers = basePack.map((entry) => entry.module_number);
+        if (expectedNumbers.some((number) => !moduleMap.has(number))) {
+          throw new Error(`${subject.code} is missing one or more configured modules.`);
+        }
+
+        // Hide the previous generated pack, retaining a reversible CMS archive.
+        for (const row of detail.resources.filter((item) => item.title.startsWith('Generated Exam Notes — Module ') && item.source_category === 'simplified_ai_notes')) {
+          await api.patchResource(row.id, { is_published: false }); archived++;
+        }
+        for (const row of detail.questions.filter((item) => item.source_label === 'Generated S3 Study Pack — syllabus/source synthesis')) {
+          await api.patchQuestion(row.id, { is_published: false }); archived++;
+        }
+        for (const row of detail.programs.filter((item) => item.title.startsWith('Worked Example — Module '))) {
+          await api.patchProgram(row.id, { is_published: false }); archived++;
+        }
+        const oldRevisionTitles = new Set(basePack.flatMap((item) => [item.revisionTitle, item.revision2Title]));
+        for (const row of detail.revisionItems.filter((item) => oldRevisionTitles.has(item.title))) {
+          await api.patchRevisionItem(row.id, { is_published: false }); archived++;
+        }
+
+        const topicIds = new Map<string, number>();
+        const topicItems = expandedPack.flatMap((module, index) => [...new Set([module.topics[0], ...module.questions.map((question) => question.topic)])].map((title, topicIndex) => ({ module_number: index + 1, title, topicIndex })));
+        for (const row of detail.topics) {
+          const match = topicItems.find((item) => item.title === row.title && moduleMap.get(item.module_number)?.id === row.module_id);
+          if (match) topicIds.set(`${match.module_number}:${match.title}`, row.id);
+        }
+        const missingTopics = topicItems.filter((item) => !topicIds.has(`${item.module_number}:${item.title}`));
+        if (missingTopics.length) {
+          const result = await api.bulkImport({ entityType: 'topics', subjectId: subject.id, items: missingTopics.map((item) => ({
+            module_number: item.module_number, title: item.title, summary: `Question topic for ${subject.code} Module ${item.module_number}.`, importance: 'important', content_type: 'theory', sort_order: item.topicIndex + 1, is_published: true,
+          })) });
+          inserted += result.inserted;
+          const refreshed = await api.getSubjectDetail(subject.id, true);
+          for (const item of topicItems) {
+            const row = refreshed.topics.find((topic) => topic.title === item.title && topic.module_id === moduleMap.get(item.module_number)?.id);
+            if (row) topicIds.set(`${item.module_number}:${item.title}`, row.id);
+          }
+        }
+
+        const notes = basePack.map((item, index) => {
+          const extra = expandedPack[index];
+          const diagrams: Record<string, Record<number, string>> = {
+            PBCST304: { 1: 'jvm-architecture', 2: 'inheritance-dispatch', 3: 'exception-hierarchy', 4: 'jdbc-architecture' },
+            PCCST302: { 1: 'dfa-substring', 3: 'pda-anbn', 4: 'turing-machine' },
+            GAMAT301: { 4: 'markov-states' },
+            PCCST303: { 3: 'bst' },
+            GAEST305: { 3: 'full-adder', 4: 'fsm-flow' },
+            UCHUT346: { 1: 'ppc' },
+          };
+          const priorities = `\n\n### Importance and source evidence\n- **Must Study:** ${extra.mustStudy.join('; ')}\n- **Important:** ${extra.important.join('; ')}\n- **Additional:** ${extra.additional.join('; ')}\n\n${extra.evidence}\n\n${extra.addendum}`;
+          return {
+            module_number: item.module_number, scheme_id: subject.scheme_id, semester_id: subject.semester_id, academic_year_id: subject.academic_year_id,
+            title: `Exam-Friendly Notes — Module ${item.module_number}`,
+            description: `Concise exam-oriented notes for ${subject.code} Module ${item.module_number}, with three evidence-based priority levels, worked examples and subject-specific formulas, syntax or diagrams.`,
+            resource_type: 'exam_notes', source_category: 'simplified_ai_notes', importance: 'must_study', content_format: 'markdown', content_markdown: `${item.note}${priorities}`, diagram_key: diagrams[subject.code]?.[item.module_number], is_published: true,
+          };
+        });
+        const questionItems = basePack.flatMap((item, index) => {
+          const extra = expandedPack[index];
+          const topicName = extra.topics[0];
+          const baseQuestion = {
+            module_number: item.module_number, topic_id: topicIds.get(`${item.module_number}:${topicName}`) ?? null,
+            question_text: item.question, question_type: 'descriptive', marks: 5, difficulty: 'medium', importance: 'must_study',
+            source_label: 'Original practice synthesis — supplied syllabus and KTU study sources', source_category: 'practice_material', exam_year: null,
+            is_solved: true, is_important: true, is_published: true,
+            short_answer: item.answer, detailed_explanation: item.answer, expected_marks: 5,
+          };
+          const authored = extra.questions.map((question) => ({
+            module_number: item.module_number, topic_id: topicIds.get(`${item.module_number}:${question.topic}`) ?? topicIds.get(`${item.module_number}:${topicName}`) ?? null,
+            question_text: question.question, question_type: question.type, marks: question.marks, difficulty: question.difficulty, importance: question.importance,
+            source_label: question.source || `Syllabus-aligned practice — ${subject.code} Module ${item.module_number}; supplied KTU notes and Q bank/model paper`,
+            source_category: 'practice_material', is_solved: question.solved, is_important: question.importance === 'must_study', is_published: true,
+            short_answer: question.answer, detailed_explanation: question.detail || question.answer, formula_text: question.formula,
+            code_snippet: question.code, code_language: question.language, diagram_key: question.diagramKey, expected_marks: question.marks,
+          }));
+          return [baseQuestion, ...authored];
+        });
+        const appliedExamples = basePack.map((item) => ({
+          module_number: item.module_number, title: `Worked Example — Module ${item.module_number}: ${item.exampleTitle}`, description: item.problem,
+          problem_statement: item.problem, language: subject.code === 'PBCST304' ? 'java' : subject.code === 'PCCST303' ? 'text' : 'text', code: item.workedExample, explanation: item.workedExample,
+          importance: 'important', is_published: true,
+        }));
+        const cards = expandedPack.flatMap((module, index) => module.revisions.map((card, cardIndex) => ({
+          module_number: index + 1, title: card.title, content_markdown: card.content, category: card.category, importance: card.importance,
+          code_snippet: card.code, diagram_key: card.diagramKey, sort_order: cardIndex + 1, is_published: true,
+        })));
+        for (const [entityType, items] of [['resources', notes], ['questions', questionItems], ['programs', appliedExamples], ['revision_items', cards]] as const) {
           const result = await api.bulkImport({ entityType, subjectId: subject.id, items });
           inserted += result.inserted;
         }
       }
-      await loadSubjectScopedData(subject.id);
+      await loadSubjectScopedData(selectedSubjectId);
       await loadSubjects();
-      notify('ok', inserted ? `Published ${inserted} generated items for ${subject.code}.` : `Generated pack for ${subject.code} is already complete.`);
-
+      notify('ok', `Published 240 study entries across ${targets.length} subjects and archived ${archived} prior generated rows.`);
     } catch (err) {
-      notify('err', `Generated pack import stopped: ${(err as Error).message}`);
+      notify('err', `Study pack replacement stopped after a partial save: ${(err as Error).message}`);
+      await loadSubjectScopedData(selectedSubjectId);
+      await loadSubjects();
     } finally {
       setPublishingGeneratedPack(false);
     }
@@ -1586,13 +1647,13 @@ export function AdminDashboardPage() {
             </p>
             {activeSubject && GENERATED_S3_PACK[activeSubject.code] && (
               <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
-                <h3 className="text-sm font-semibold">Complete the generated study sections</h3>
+                <h3 className="text-sm font-semibold">Replace the generated S3 study library</h3>
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                  Publish original syllabus-aligned notes, solved practice questions, worked examples and quick-revision cards for all configured modules in {activeSubject.code}.
+                  Replaces the previous generated pack across all six supplied subjects with 240 exam-friendly entries: 24 module notes, 120 answered questions (including solved questions), 24 worked examples and 72 revision cards. The previous generated rows are unpublished and remain recoverable in CMS.
                 </p>
                 <Button className="mt-3" disabled={publishingGeneratedPack} onClick={publishGeneratedPack}>
                   <Zap className="h-4 w-4" />
-                  {publishingGeneratedPack ? 'Publishing study pack…' : 'Publish generated study pack'}
+                  {publishingGeneratedPack ? 'Replacing six-subject library…' : 'Replace generated pack for all six subjects'}
                 </Button>
               </div>
             )}

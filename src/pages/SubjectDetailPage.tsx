@@ -40,7 +40,8 @@ type SubjectTab =
   | 'overview'
   | 'syllabus'
   | 'exam_notes'
-  | 'pdf_notes'
+  | 'ktu_notes'
+  | 'handwritten_notes'
   | 'pyqs'
   | 'question_bank'
   | 'solved'
@@ -129,9 +130,13 @@ export function SubjectDetailPage() {
       (impFilter === 'all' || r.importance === impFilter)
   );
 
-  const libraryNotes = resources.filter(
+  const ktuNotes = resources.filter(
     (r) =>
-      ['handwritten_notes', 'original_notes', 'reference_notes'].includes(r.resource_type) &&
+      ['original_notes', 'reference_notes'].includes(r.resource_type) &&
+      (moduleFilter === 'all' || String(r.module_id) === moduleFilter)
+  );
+  const handwrittenNotes = resources.filter(
+    (r) => r.resource_type === 'handwritten_notes' &&
       (moduleFilter === 'all' || String(r.module_id) === moduleFilter)
   );
 
@@ -161,7 +166,8 @@ export function SubjectDetailPage() {
     { id: 'overview', label: 'Overview & Modules', count: modules.length, icon: Layers },
     { id: 'syllabus', label: 'Official Syllabus', icon: FileText },
     { id: 'exam_notes', label: 'Exam Notes', count: resources.filter((r) => (r.resource_type === 'exam_notes' || r.resource_type === 'diagram') && r.category !== 'Question Banks').length, icon: Sparkles },
-    { id: 'pdf_notes', label: 'Handwritten & KTU Notes', count: resources.filter((r) => ['handwritten_notes', 'original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: PenTool },
+    { id: 'ktu_notes', label: 'KTU Notes', count: resources.filter((r) => ['original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: FileText },
+    { id: 'handwritten_notes', label: 'Handwritten Notes', count: resources.filter((r) => r.resource_type === 'handwritten_notes').length, icon: PenTool },
     { id: 'pyqs', label: 'PYQs & Model Papers', count: paperDocs.length, icon: GraduationCap },
     { id: 'question_bank', label: 'Question Bank', count: questions.length + questionBankDocs.length, icon: HelpCircle },
     { id: 'solved', label: 'Solved Q&A', count: questions.filter((q) => q.is_solved).length, icon: CheckCircle2 },
@@ -283,7 +289,7 @@ export function SubjectDetailPage() {
       </div>
 
       {/* Optional Module/Importance Filter Bar for resource tabs */}
-      {['exam_notes', 'pdf_notes', 'question_bank', 'solved', 'programs', 'revision'].includes(tab) &&
+      {['exam_notes', 'ktu_notes', 'handwritten_notes', 'question_bank', 'solved', 'programs', 'revision'].includes(tab) &&
         modules.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -560,23 +566,38 @@ export function SubjectDetailPage() {
           </div>
         )}
 
-        {/* 4. HANDWRITTEN / ORIGINAL / REFERENCE PDF NOTES */}
-        {tab === 'pdf_notes' && (
+        {/* 4. KTU course notes */}
+        {tab === 'ktu_notes' && (
           <div className="grid gap-4 sm:grid-cols-2">
-            {libraryNotes.length === 0 ? (
+            {ktuNotes.length === 0 ? (
               <div className="sm:col-span-2">
                 <EmptySubjectState
-                  label="Handwritten & KTU Notes"
+                  label="KTU Notes"
                   subjectCode={subject.code}
                 />
               </div>
             ) : (
-              libraryNotes.map((doc) => (
+              ktuNotes.map((doc) => (
                 <ResourceFileCard
                   key={doc.id}
                   resource={doc}
                   onPreview={() => showPreview(doc)}
                 />
+              ))
+            )}
+          </div>
+        )}
+
+        {/* 5. Handwritten notes */}
+        {tab === 'handwritten_notes' && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {handwrittenNotes.length === 0 ? (
+              <div className="sm:col-span-2">
+                <EmptySubjectState label="Handwritten Notes" subjectCode={subject.code} />
+              </div>
+            ) : (
+              handwrittenNotes.map((doc) => (
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={() => showPreview(doc)} />
               ))
             )}
           </div>

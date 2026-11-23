@@ -180,6 +180,118 @@ export function DiagramGallery({ diagramKey }: DiagramProps) {
         </div>
       );
 
+    case 'dfa-substring':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: DFA for substring AB</div>
+          <svg viewBox="0 0 620 150" className="w-full h-auto" role="img" aria-label="DFA that accepts strings containing AB">
+            <circle cx="110" cy="75" r="31" fill="#eef2ff" stroke="#4f46e5" strokeWidth="2" /><text x="110" y="80" textAnchor="middle" fontSize="14" fill="#1e1b4b">q0</text>
+            <circle cx="300" cy="75" r="31" fill="#dbeafe" stroke="#2563eb" strokeWidth="2" /><text x="300" y="80" textAnchor="middle" fontSize="14" fill="#1e3a8a">q1</text>
+            <circle cx="500" cy="75" r="35" fill="#dcfce7" stroke="#059669" strokeWidth="2" /><circle cx="500" cy="75" r="29" fill="none" stroke="#059669" /><text x="500" y="80" textAnchor="middle" fontSize="14" fill="#064e3b">q2</text>
+            <line x1="141" y1="67" x2="268" y2="67" stroke="#64748b" strokeWidth="2" /><text x="204" y="58" textAnchor="middle" fontSize="12">A</text>
+            <line x1="331" y1="67" x2="463" y2="67" stroke="#64748b" strokeWidth="2" /><text x="397" y="58" textAnchor="middle" fontSize="12">B</text>
+            <text x="110" y="132" textAnchor="middle" fontSize="11">B,C loop</text><text x="300" y="132" textAnchor="middle" fontSize="11">A loops; C→q0</text><text x="500" y="132" textAnchor="middle" fontSize="11">accept; all loop</text>
+          </svg>
+        </div>
+      );
+
+    case 'expression-tree':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Expression tree for (a+b)*c</div>
+          <svg viewBox="0 0 420 175" className="w-full h-auto" role="img" aria-label="Expression tree with multiplication at root">
+            <line x1="210" y1="48" x2="130" y2="95" stroke="#64748b" strokeWidth="2" /><line x1="210" y1="48" x2="300" y2="95" stroke="#64748b" strokeWidth="2" />
+            <line x1="130" y1="117" x2="80" y2="150" stroke="#64748b" strokeWidth="2" /><line x1="130" y1="117" x2="180" y2="150" stroke="#64748b" strokeWidth="2" />
+            {[[210,35,'*'],[130,105,'+'],[300,105,'c'],[80,158,'a'],[180,158,'b']].map(([x,y,label])=><g key={String(label)+x}><circle cx={Number(x)} cy={Number(y)} r="19" fill="#eef2ff" stroke="#4f46e5" strokeWidth="1.5"/><text x={Number(x)} y={Number(y)+5} textAnchor="middle" fontSize="14">{label}</text></g>)}
+          </svg>
+        </div>
+      );
+
+    case 'full-adder':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Full adder from two half adders</div>
+          <svg viewBox="0 0 650 155" className="w-full h-auto" role="img" aria-label="Two half adders and an OR gate form a full adder">
+            <rect x="150" y="25" width="130" height="55" rx="8" fill="#dbeafe" stroke="#2563eb"/><text x="215" y="50" textAnchor="middle" fontSize="13">Half Adder 1</text><text x="215" y="68" textAnchor="middle" fontSize="11">A,B → S1,C1</text>
+            <rect x="345" y="25" width="130" height="55" rx="8" fill="#dbeafe" stroke="#2563eb"/><text x="410" y="50" textAnchor="middle" fontSize="13">Half Adder 2</text><text x="410" y="68" textAnchor="middle" fontSize="11">S1,Cin → S,C2</text>
+            <rect x="505" y="95" width="95" height="42" rx="8" fill="#fef3c7" stroke="#d97706"/><text x="552" y="121" textAnchor="middle" fontSize="13">OR → Cout</text>
+            <line x1="280" y1="52" x2="345" y2="52" stroke="#64748b" strokeWidth="2"/><text x="312" y="43" textAnchor="middle" fontSize="11">S1</text><line x1="280" y1="70" x2="505" y2="115" stroke="#64748b" strokeWidth="2"/><line x1="475" y1="70" x2="505" y2="115" stroke="#64748b" strokeWidth="2"/><text x="525" y="145" textAnchor="middle" fontSize="10">C1 OR C2</text>
+          </svg>
+        </div>
+      );
+
+    case 'ppc':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Production possibility curve</div>
+          <svg viewBox="0 0 440 210" className="w-full h-auto" role="img" aria-label="PPC showing efficient, inefficient and unattainable points">
+            <line x1="55" y1="175" x2="395" y2="175" stroke="#475569" strokeWidth="2"/><line x1="55" y1="175" x2="55" y2="25" stroke="#475569" strokeWidth="2"/><path d="M70 45 Q150 80 215 122 Q285 157 370 165" fill="none" stroke="#4f46e5" strokeWidth="3"/><text x="260" y="198" textAnchor="middle" fontSize="11">Good X</text><text x="20" y="95" textAnchor="middle" fontSize="11" transform="rotate(-90 20 95)">Good Y</text>
+            <circle cx="150" cy="145" r="5" fill="#d97706"/><text x="160" y="148" fontSize="11">Inside: underused</text><circle cx="260" cy="148" r="5" fill="#059669"/><text x="270" y="151" fontSize="11">On: efficient</text><circle cx="310" cy="72" r="5" fill="#dc2626"/><text x="320" y="75" fontSize="11">Outside</text>
+          </svg>
+        </div>
+      );
+
+    case 'markov-states':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Two-state Markov chain</div>
+          <svg viewBox="0 0 470 160" className="w-full h-auto" role="img" aria-label="Two-state Markov chain with self transitions">
+            <circle cx="145" cy="88" r="35" fill="#eef2ff" stroke="#4f46e5" strokeWidth="2"/><text x="145" y="93" textAnchor="middle" fontSize="14">State 1</text>
+            <circle cx="330" cy="88" r="35" fill="#dcfce7" stroke="#059669" strokeWidth="2"/><text x="330" y="93" textAnchor="middle" fontSize="14">State 2</text>
+            <line x1="180" y1="78" x2="295" y2="78" stroke="#64748b" strokeWidth="2"/><text x="238" y="68" textAnchor="middle" fontSize="11">p₁₂</text>
+            <line x1="295" y1="101" x2="180" y2="101" stroke="#64748b" strokeWidth="2"/><text x="238" y="120" textAnchor="middle" fontSize="11">p₂₁</text>
+            <path d="M125 53 C83 15,173 15,165 56" fill="none" stroke="#94a3b8" strokeWidth="1.8"/><text x="145" y="20" textAnchor="middle" fontSize="10">p₁₁</text>
+            <path d="M310 53 C268 15,358 15,350 56" fill="none" stroke="#94a3b8" strokeWidth="1.8"/><text x="330" y="20" textAnchor="middle" fontSize="10">p₂₂</text>
+          </svg>
+        </div>
+      );
+
+    case 'pda-anbn':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: PDA idea for aⁿbⁿ</div>
+          <svg viewBox="0 0 620 150" className="w-full h-auto" role="img" aria-label="Push markers for a symbols and pop them for b symbols">
+            <rect x="20" y="45" width="150" height="58" rx="8" fill="#eef2ff" stroke="#4f46e5"/><text x="95" y="70" textAnchor="middle" fontSize="13">Read a</text><text x="95" y="88" textAnchor="middle" fontSize="11">push X</text>
+            <rect x="235" y="45" width="150" height="58" rx="8" fill="#dbeafe" stroke="#2563eb"/><text x="310" y="70" textAnchor="middle" fontSize="13">Read b</text><text x="310" y="88" textAnchor="middle" fontSize="11">pop X</text>
+            <rect x="450" y="45" width="150" height="58" rx="8" fill="#dcfce7" stroke="#059669"/><text x="525" y="70" textAnchor="middle" fontSize="13">Input ends</text><text x="525" y="88" textAnchor="middle" fontSize="11">accept bottom marker</text>
+            <line x1="170" y1="74" x2="235" y2="74" stroke="#64748b" strokeWidth="2"/><line x1="385" y1="74" x2="450" y2="74" stroke="#64748b" strokeWidth="2"/><text x="310" y="133" textAnchor="middle" fontSize="11">Reject if a b-order is broken or a stack marker remains</text>
+          </svg>
+        </div>
+      );
+
+    case 'turing-machine':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Turing machine model</div>
+          <svg viewBox="0 0 560 165" className="w-full h-auto" role="img" aria-label="Finite control connected to read-write head and tape">
+            <rect x="205" y="8" width="150" height="42" rx="8" fill="#eef2ff" stroke="#4f46e5"/><text x="280" y="34" textAnchor="middle" fontSize="13">Finite control</text>
+            <rect x="222" y="72" width="116" height="38" rx="8" fill="#dbeafe" stroke="#2563eb"/><text x="280" y="96" textAnchor="middle" fontSize="12">Read / write head</text><line x1="280" y1="50" x2="280" y2="72" stroke="#64748b" strokeWidth="2"/>
+            {[80,160,240,320,400].map((x,i)=><g key={x}><rect x={x} y="122" width="70" height="32" fill={i===2?'#fef3c7':'#fff'} stroke="#64748b"/><text x={x+35} y="143" textAnchor="middle" fontSize="12">{['a','a','□','b','b'][i]}</text></g>)}<line x1="280" y1="110" x2="275" y2="122" stroke="#64748b" strokeWidth="2"/>
+          </svg>
+        </div>
+      );
+
+    case 'bst':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: Binary search tree order</div>
+          <svg viewBox="0 0 430 170" className="w-full h-auto" role="img" aria-label="BST with left keys smaller and right keys larger">
+            <line x1="215" y1="45" x2="130" y2="96" stroke="#64748b" strokeWidth="2"/><line x1="215" y1="45" x2="300" y2="96" stroke="#64748b" strokeWidth="2"/><line x1="130" y1="118" x2="85" y2="151" stroke="#64748b" strokeWidth="2"/><line x1="130" y1="118" x2="175" y2="151" stroke="#64748b" strokeWidth="2"/>
+            {[[215,34,'8'],[130,108,'4'],[300,108,'12'],[85,158,'2'],[175,158,'6']].map(([x,y,label])=><g key={String(label)}><circle cx={Number(x)} cy={Number(y)} r="18" fill="#eef2ff" stroke="#4f46e5"/><text x={Number(x)} y={Number(y)+5} textAnchor="middle" fontSize="13">{label}</text></g>)}
+          </svg>
+        </div>
+      );
+
+    case 'fsm-flow':
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Diagram: FSM design flow</div>
+          <svg viewBox="0 0 650 115" className="w-full h-auto" role="img" aria-label="FSM design stages from specification to test">
+            {['Specification','States','Diagram / table','Logic + flip-flops','Test'].map((label,i)=>{const x=10+i*128;return <g key={label}><rect x={x} y="30" width="112" height="48" rx="8" fill={i===4?'#dcfce7':'#eef2ff'} stroke={i===4?'#059669':'#4f46e5'}/><text x={x+56} y="58" textAnchor="middle" fontSize="11">{label}</text>{i<4&&<line x1={x+112} y1="54" x2={x+128} y2="54" stroke="#64748b" strokeWidth="2"/>}</g>})}
+          </svg>
+        </div>
+      );
+
     default:
       return null;
   }
