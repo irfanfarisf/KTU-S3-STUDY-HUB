@@ -47,6 +47,7 @@ export function NotesLibraryPage() {
       subjectId: subjectFilter !== 'all' ? Number(subjectFilter) : undefined,
       importance: impFilter !== 'all' ? impFilter : undefined,
       schemeId: selection.schemeId,
+      branchId: selection.branchId,
       semesterId: selection.semesterId,
     };
     const resourceTypes = resourceTypeParam.split(',');
@@ -62,7 +63,7 @@ export function NotesLibraryPage() {
       )
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [subjectFilter, typeFilter, impFilter, selection.schemeId, selection.semesterId]);
+  }, [subjectFilter, typeFilter, impFilter, selection.schemeId, selection.branchId, selection.semesterId]);
 
   const updateParam = (key: string, val: string) => {
     const next = new URLSearchParams(searchParams);

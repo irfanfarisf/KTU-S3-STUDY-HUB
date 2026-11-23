@@ -15,6 +15,7 @@ export function QuestionBankPage() {
   const { selection, practicedQuestionIds } = useStudy();
   const [searchParams, setSearchParams] = useSearchParams();
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectsReady, setSubjectsReady] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [bankResources, setBankResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +31,8 @@ export function QuestionBankPage() {
   const [solvedOnly, setSolvedOnly] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    setSubjectsReady(false);
     api
       .getSubjects({
         universityId: selection.universityId,
@@ -37,11 +40,21 @@ export function QuestionBankPage() {
         branchId: selection.branchId,
         semesterId: selection.semesterId,
       })
-      .then(setSubjects)
-      .catch(console.error);
+      .then((rows) => {
+        if (active) {
+          setSubjects(rows);
+          setSubjectsReady(true);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (active) setSubjectsReady(true);
+      });
+    return () => { active = false; };
   }, [selection]);
 
   useEffect(() => {
+    if (subjectParam !== 'all' && !subjectsReady) return;
     setLoading(true);
     const matchedSubject = subjects.find(
       (s) => s.code.toLowerCase() === subjectParam.toLowerCase() || String(s.id) === subjectParam
@@ -49,6 +62,9 @@ export function QuestionBankPage() {
     api
       .getQuestions({
         subjectId: matchedSubject?.id,
+        schemeId: selection.schemeId,
+        branchId: selection.branchId,
+        semesterId: selection.semesterId,
         questionType: typeFilter !== 'all' ? typeFilter : undefined,
         importance: impFilter !== 'all' ? impFilter : undefined,
         difficulty: diffFilter !== 'all' ? diffFilter : undefined,
@@ -57,9 +73,10 @@ export function QuestionBankPage() {
       .then(setQuestions)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [subjectParam, subjects, typeFilter, impFilter, diffFilter, solvedOnly]);
+  }, [subjectParam, subjects, subjectsReady, typeFilter, impFilter, diffFilter, solvedOnly, selection.schemeId, selection.branchId, selection.semesterId]);
 
   useEffect(() => {
+    if (subjectParam !== 'all' && !subjectsReady) return;
     const matchedSubject = subjects.find(
       (s) => s.code.toLowerCase() === subjectParam.toLowerCase() || String(s.id) === subjectParam
     );
@@ -70,12 +87,13 @@ export function QuestionBankPage() {
         category: 'Question Banks',
         importance: impFilter !== 'all' ? impFilter : undefined,
         schemeId: selection.schemeId,
+        branchId: selection.branchId,
         semesterId: selection.semesterId,
       })
       .then(setBankResources)
       .catch(console.error)
       .finally(() => setBankLoading(false));
-  }, [subjectParam, subjects, impFilter, selection.schemeId, selection.semesterId]);
+  }, [subjectParam, subjects, subjectsReady, impFilter, selection.schemeId, selection.branchId, selection.semesterId]);
 
   const practicedCount = questions.filter((q) => practicedQuestionIds.includes(q.id)).length;
 

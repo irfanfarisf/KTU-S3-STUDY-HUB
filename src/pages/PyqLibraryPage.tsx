@@ -40,12 +40,13 @@ export function PyqLibraryPage() {
         resourceType: 'pyq,model_paper,solved_paper',
         examType: examTypeFilter !== 'all' ? examTypeFilter : undefined,
         schemeId: selection.schemeId,
+        branchId: selection.branchId,
         semesterId: selection.semesterId,
       })
       .then(setPapers)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [subjectFilter, examTypeFilter, selection.schemeId, selection.semesterId]);
+  }, [subjectFilter, examTypeFilter, selection.schemeId, selection.branchId, selection.semesterId]);
 
   const setFilter = (key: string, val: string) => {
     const next = new URLSearchParams(searchParams);

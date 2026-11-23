@@ -51,7 +51,7 @@ export function Footer() {
 
         <div className="mt-8 flex flex-col items-start justify-between gap-2 border-t border-slate-200 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center dark:border-slate-800">
           <span>KTU 2024 Scheme • Multi-Subject Academic Resource Architecture</span>
-          <span>No login required for students — progress saved locally in browser</span>
+          <span>No login required — save progress locally or sign in to sync across devices</span>
         </div>
       </div>
     </footer>

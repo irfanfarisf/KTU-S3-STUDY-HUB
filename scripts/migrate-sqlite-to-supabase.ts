@@ -51,7 +51,8 @@ async function uploadLegacyResource(row: Record<string, unknown>): Promise<Recor
     upsert: true,
   });
   if (error) throw new Error(`Could not upload ${filename}: ${error.message}`);
-  next.file_url = supabase.storage.from('study-resources').getPublicUrl(storagePath).data.publicUrl;
+  next.file_path = storagePath;
+  next.file_url = null;
   return next;
 }
 

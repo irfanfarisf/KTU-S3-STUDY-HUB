@@ -145,6 +145,7 @@ export const api = {
   }): Promise<Subject[]> => {
     let query = getSupabase().from('subjects').select(metadataSubjectSelect())
       .order('sort_order').order('code');
+    if (!filters?.includeUnpublished) query = query.eq('is_published', true);
     query = filterBy(query, {
       university_id: filters?.universityId,
       scheme_id: filters?.schemeId,
@@ -155,24 +156,41 @@ export const api = {
     return rows.map(mapSubject);
   },
 
-  getSubjectDetail: async (codeOrId: string | number): Promise<SubjectDetailResponse> => {
+  getSubjectDetail: async (codeOrId: string | number, includeUnpublished = false): Promise<SubjectDetailResponse> => {
     const db = getSupabase();
     let subjectQuery = db.from('subjects').select('*, university:universities(code,name), scheme:schemes(name), branch:branches(code,name), semester:semesters(code,label)');
     subjectQuery = typeof codeOrId === 'number' || /^\d+$/.test(String(codeOrId))
       ? subjectQuery.eq('id', Number(codeOrId))
       : subjectQuery.ilike('code', String(codeOrId));
+    if (!includeUnpublished) subjectQuery = subjectQuery.eq('is_published', true);
     const subjectRow = await result<Row | null>(subjectQuery.maybeSingle());
     if (!subjectRow) throw new Error('Subject not found.');
     const subject = mapSubject(subjectRow);
     const subjectId = subjectRow.id;
+    let modulesQuery = db.from('modules').select('*').eq('subject_id', subjectId).order('module_number');
+    let topicsQuery = db.from('topics').select('*').eq('subject_id', subjectId).order('sort_order').order('id');
+    let resourcesQuery = db.from('resources').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)').eq('subject_id', subjectId).order('created_at', { ascending: false });
+    let questionsQuery = db.from('questions').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), answers(*)').eq('subject_id', subjectId).order('id');
+    let programsQuery = db.from('programs').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('id');
+    let revisionQuery = db.from('revision_items').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('sort_order').order('id');
+    let syllabusQuery = db.from('subject_syllabi').select('*').eq('subject_id', subjectId);
+    if (!includeUnpublished) {
+      modulesQuery = modulesQuery.eq('is_published', true);
+      topicsQuery = topicsQuery.eq('is_published', true);
+      resourcesQuery = resourcesQuery.eq('is_published', true);
+      questionsQuery = questionsQuery.eq('is_published', true);
+      programsQuery = programsQuery.eq('is_published', true);
+      revisionQuery = revisionQuery.eq('is_published', true);
+      syllabusQuery = syllabusQuery.eq('is_published', true);
+    }
     const [modules, topics, resources, questions, programs, revisionItems, syllabus] = await Promise.all([
-      result<Row[]>(db.from('modules').select('*').eq('subject_id', subjectId).order('module_number')),
-      result<Row[]>(db.from('topics').select('*').eq('subject_id', subjectId).order('sort_order').order('id')),
-      result<Row[]>(db.from('resources').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)').eq('subject_id', subjectId).order('created_at', { ascending: false })),
-      result<Row[]>(db.from('questions').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), answers(*)').eq('subject_id', subjectId).order('id')),
-      result<Row[]>(db.from('programs').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('id')),
-      result<Row[]>(db.from('revision_items').select('*, subject:subjects(code,name), module:modules(module_number,title)').eq('subject_id', subjectId).order('sort_order').order('id')),
-      result<Row | null>(db.from('subject_syllabi').select('*').eq('subject_id', subjectId).maybeSingle()),
+      result<Row[]>(modulesQuery),
+      result<Row[]>(topicsQuery),
+      result<Row[]>(resourcesQuery),
+      result<Row[]>(questionsQuery),
+      result<Row[]>(programsQuery),
+      result<Row[]>(revisionQuery),
+      result<Row | null>(syllabusQuery.maybeSingle()),
     ]);
     return {
       subject,
@@ -205,10 +223,23 @@ export const api = {
 
   getResources: async (filters?: {
     subjectId?: number; moduleId?: number; resourceType?: string; examType?: string; importance?: string;
-    schemeId?: number; semesterId?: number; category?: string; includeUnpublished?: boolean;
+    schemeId?: number; branchId?: number; semesterId?: number; category?: string; includeUnpublished?: boolean;
   }): Promise<Resource[]> => {
-    let query = getSupabase().from('resources').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)').order('created_at', { ascending: false });
-    query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId, exam_type: filters?.examType, importance: filters?.importance, scheme_id: filters?.schemeId, semester_id: filters?.semesterId, category: filters?.category });
+    let query = getSupabase()
+      .from('resources')
+      .select('*, subject:subjects!inner(code,name,scheme_id,branch_id,semester_id,is_published), module:modules(module_number,title), topic:topics(title), scheme:schemes(name), semester:semesters(code), academic_year:academic_years(label)')
+      .order('created_at', { ascending: false });
+    query = filterBy(query, {
+      subject_id: filters?.subjectId,
+      module_id: filters?.moduleId,
+      exam_type: filters?.examType,
+      importance: filters?.importance,
+      category: filters?.category,
+    });
+    if (!filters?.includeUnpublished) query = query.eq('is_published', true).eq('subject.is_published', true);
+    if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
+    if (filters?.branchId) query = query.eq('subject.branch_id', filters.branchId);
+    if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
     if (filters?.resourceType) {
       const types = filters.resourceType.split(',').map((value) => value.trim()).filter(Boolean);
       if (types.length > 1) query = query.in('resource_type', types);
@@ -217,14 +248,16 @@ export const api = {
     return (await result<Row[]>(query)).map(mapResource);
   },
 
-  getSyllabi: async (filters?: { subjectId?: number; schemeId?: number; semesterId?: number }): Promise<Resource[]> => {
+  getSyllabi: async (filters?: { subjectId?: number; schemeId?: number; branchId?: number; semesterId?: number }): Promise<Resource[]> => {
     let query = getSupabase()
       .from('subject_syllabi')
-      .select('*, subject:subjects!inner(id,code,name,scheme_id,semester_id,academic_year_id)')
+      .select('*, subject:subjects!inner(id,code,name,scheme_id,branch_id,semester_id,academic_year_id,is_published)')
       .eq('is_published', true)
+      .eq('subject.is_published', true)
       .order('subject_id');
     if (filters?.subjectId) query = query.eq('subject_id', filters.subjectId);
     if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
+    if (filters?.branchId) query = query.eq('subject.branch_id', filters.branchId);
     if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
     const rows = await result<Row[]>(query);
     return rows.map((row) => ({
@@ -264,37 +297,57 @@ export const api = {
 
   getQuestions: async (filters?: {
     subjectId?: number; moduleId?: number; questionType?: string; importance?: string; difficulty?: string;
+    schemeId?: number; branchId?: number; semesterId?: number;
     solvedOnly?: boolean; importantOnly?: boolean; includeUnpublished?: boolean;
   }): Promise<Question[]> => {
-    let query = getSupabase().from('questions').select('*, subject:subjects(code,name), module:modules(module_number,title), topic:topics(title), answers(*)').order('id');
+    let query = getSupabase()
+      .from('questions')
+      .select('*, subject:subjects!inner(code,name,scheme_id,branch_id,semester_id,is_published), module:modules(module_number,title), topic:topics(title), answers(*)')
+      .order('id');
     query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId, question_type: filters?.questionType, importance: filters?.importance, difficulty: filters?.difficulty });
+    if (!filters?.includeUnpublished) query = query.eq('is_published', true).eq('subject.is_published', true);
+    if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
+    if (filters?.branchId) query = query.eq('subject.branch_id', filters.branchId);
+    if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
     if (filters?.solvedOnly) query = query.eq('is_solved', true);
     if (filters?.importantOnly) query = query.eq('is_important', true);
     return (await result<Row[]>(query)).map(mapQuestion);
   },
 
   getPrograms: async (filters?: { subjectId?: number; moduleId?: number; includeUnpublished?: boolean }): Promise<ProgramItem[]> => {
-    let query = getSupabase().from('programs').select('*, subject:subjects(code,name), module:modules(module_number,title)').order('id');
+    let query = getSupabase().from('programs').select('*, subject:subjects!inner(code,name,is_published), module:modules(module_number,title)').order('id');
     query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId });
+    if (!filters?.includeUnpublished) query = query.eq('is_published', true).eq('subject.is_published', true);
     return (await result<Row[]>(query)).map(mapProgram);
   },
 
-  getRevisionItems: async (filters?: { subjectId?: number; moduleId?: number; category?: string; includeUnpublished?: boolean }): Promise<RevisionItem[]> => {
-    let query = getSupabase().from('revision_items').select('*, subject:subjects(code,name), module:modules(module_number,title)').order('sort_order').order('id');
+  getRevisionItems: async (filters?: {
+    subjectId?: number; moduleId?: number; category?: string;
+    schemeId?: number; branchId?: number; semesterId?: number; includeUnpublished?: boolean;
+  }): Promise<RevisionItem[]> => {
+    let query = getSupabase()
+      .from('revision_items')
+      .select('*, subject:subjects!inner(code,name,scheme_id,branch_id,semester_id,is_published), module:modules(module_number,title)')
+      .order('sort_order')
+      .order('id');
     query = filterBy(query, { subject_id: filters?.subjectId, module_id: filters?.moduleId, category: filters?.category });
+    if (!filters?.includeUnpublished) query = query.eq('is_published', true).eq('subject.is_published', true);
+    if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
+    if (filters?.branchId) query = query.eq('subject.branch_id', filters.branchId);
+    if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
     return (await result<Row[]>(query)).map(mapRevision);
   },
 
   search: async (params: { q?: string; subjectId?: number; moduleNumber?: number; resourceType?: string; importance?: string; examYear?: string }): Promise<SearchResultItem[]> => {
     const db = getSupabase();
     const [subjects, modules, topics, resources, questions, programs, revisions] = await Promise.all([
-      result<Row[]>(db.from('subjects').select('*,branch:branches(code,name),semester:semesters(code,label)').limit(500)),
-      result<Row[]>(db.from('modules').select('*,subject:subjects(id,code,name)').limit(1000)),
-      result<Row[]>(db.from('topics').select('*,subject:subjects(id,code,name),module:modules(module_number,title)').limit(1000)),
-      result<Row[]>(db.from('resources').select('*,subject:subjects(id,code,name),module:modules(module_number,title),topic:topics(title)').limit(1000)),
-      result<Row[]>(db.from('questions').select('*,subject:subjects(id,code,name),module:modules(module_number,title),topic:topics(title),answers(short_answer)').limit(1000)),
-      result<Row[]>(db.from('programs').select('*,subject:subjects(id,code,name),module:modules(module_number,title)').limit(1000)),
-      result<Row[]>(db.from('revision_items').select('*,subject:subjects(id,code,name),module:modules(module_number,title)').limit(1000)),
+      result<Row[]>(db.from('subjects').select('*,branch:branches(code,name),semester:semesters(code,label)').eq('is_published', true).limit(500)),
+      result<Row[]>(db.from('modules').select('*,subject:subjects!inner(id,code,name,is_published)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('topics').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('resources').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title),topic:topics(title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('questions').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title),topic:topics(title),answers(short_answer)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('programs').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('revision_items').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
     ]);
     const term = params.q?.trim().toLocaleLowerCase();
     const matches = (text: unknown) => !term || String(text ?? '').toLocaleLowerCase().includes(term);
@@ -362,10 +415,14 @@ export const api = {
     await result(getSupabase().from('student_records').upsert({ ...record, user_id: user.id }, { onConflict: 'user_id,record_key' }));
   },
   deleteStudentRecord: async (recordKey: string): Promise<void> => {
-    await result(getSupabase().from('student_records').delete().eq('record_key', recordKey));
+    const user = await api.currentUser();
+    if (!user) return;
+    await result(getSupabase().from('student_records').delete().eq('user_id', user.id).eq('record_key', recordKey));
   },
   clearStudentRecords: async (): Promise<void> => {
-    await result(getSupabase().from('student_records').delete().neq('record_key', ''));
+    const user = await api.currentUser();
+    if (!user) return;
+    await result(getSupabase().from('student_records').delete().eq('user_id', user.id));
   },
 
   adminLogin: async (email: string, password: string): Promise<{ token: string; user: AdminUser }> => {

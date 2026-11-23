@@ -56,9 +56,15 @@ export function SubjectDetailPage() {
   const [moduleFilter, setModuleFilter] = useState<string>('all');
   const [impFilter, setImpFilter] = useState<string>('all');
   const [qTypeFilter, setQTypeFilter] = useState<string>('all');
-  const [pdfPreview, setPdfPreview] = useState<Resource | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<(Resource & { download_url?: string | null }) | null>(null);
   const showPreview = async (resource: Resource) => {
-    try { setPdfPreview({ ...resource, file_url: await api.resourceFileUrl(resource) }); }
+    try {
+      const [previewUrl, dlUrl] = await Promise.all([
+        api.resourceFileUrl(resource),
+        api.resourceFileUrl(resource, true),
+      ]);
+      setPdfPreview({ ...resource, file_url: previewUrl, download_url: dlUrl });
+    }
     catch (error) { console.error(error); }
   };
 
@@ -437,7 +443,7 @@ export function SubjectDetailPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={async () => { const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const url = legacy ? await api.resourceFileUrl(officialSyllabus as Resource) : await api.syllabusUrl(officialSyllabus.file_path!); setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' }); }}
+                        onClick={async () => { const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const [url, dlUrl] = legacy ? await Promise.all([api.resourceFileUrl(officialSyllabus as Resource), api.resourceFileUrl(officialSyllabus as Resource, true)]) : await Promise.all([api.syllabusUrl(officialSyllabus.file_path!), api.syllabusUrl(officialSyllabus.file_path!, true)]); setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, download_url: dlUrl, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' }); }}
                       >
                         <Eye className="h-3.5 w-3.5" />
                         Preview Syllabus PDF
@@ -766,6 +772,7 @@ export function SubjectDetailPage() {
         onClose={() => setPdfPreview(null)}
         title={pdfPreview?.title || ''}
         fileUrl={pdfPreview?.file_url || null}
+        downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
       />
@@ -778,7 +785,7 @@ export function ResourceFileCard({
   onPreview,
 }: {
   resource: Resource;
-  onPreview: (url?: string) => void;
+  onPreview: (url?: string, downloadUrl?: string) => void;
 }) {
   const { isBookmarked, toggleBookmark } = useStudy();
   const bKey = `resource:${resource.id}`;
@@ -837,7 +844,7 @@ export function ResourceFileCard({
 
         {(resource.file_url || resource.file_path) && (
           <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
-            <Button size="sm" variant="outline" className="flex-1" onClick={async () => { try { onPreview((await api.resourceFileUrl(resource)) || undefined); } catch (error) { console.error(error); } }}>
+            <Button size="sm" variant="outline" className="flex-1" onClick={async () => { try { onPreview((await api.resourceFileUrl(resource)) || undefined, downloadUrl || undefined); } catch (error) { console.error(error); } }}>
               <Eye className="h-3.5 w-3.5" />
               Preview PDF
             </Button>

@@ -195,7 +195,7 @@ export function AdminDashboardPage() {
     if (!subId) return;
     try {
       const [detail, resList, qList, pList, rList] = await Promise.all([
-        api.getSubjectDetail(subId),
+        api.getSubjectDetail(subId, true),
         api.getResources({ subjectId: subId, includeUnpublished: true }),
         api.getQuestions({ subjectId: subId, includeUnpublished: true }),
         api.getPrograms({ subjectId: subId, includeUnpublished: true }),
@@ -270,10 +270,13 @@ export function AdminDashboardPage() {
     }
     setPublishingGeneratedPack(true);
     try {
-      const detail = await api.getSubjectDetail(subject.id);
+      const detail = await api.getSubjectDetail(subject.id, true);
       const moduleNumberExists = (number: number) => detail.modules.some((module) => module.module_number === number);
       const notes = pack.filter((item) => moduleNumberExists(item.module_number) && !resources.some((row) => row.title === `Generated Exam Notes — Module ${item.module_number}`)).map((item) => ({
         module_number: item.module_number,
+        scheme_id: subject.scheme_id,
+        semester_id: subject.semester_id,
+        academic_year_id: subject.academic_year_id,
         title: `Generated Exam Notes — Module ${item.module_number}`,
         description: `Original, syllabus-aligned revision notes for ${subject.code} Module ${item.module_number}. Prepared by synthesizing the supplied KTU syllabus, notes, question bank and exam papers.`,
         resource_type: 'exam_notes', source_category: 'simplified_ai_notes', importance: 'important', content_format: 'markdown', content_markdown: item.note, is_published: true,
@@ -628,8 +631,12 @@ export function AdminDashboardPage() {
                         size="sm"
                         variant="outline"
                         onClick={async () => {
-                          await api.updateSubject(s.id, { is_published: !s.is_published });
-                          await loadSubjects();
+                          try {
+                            await api.updateSubject(s.id, { is_published: !s.is_published });
+                            await loadSubjects();
+                          } catch (err) {
+                            notify('err', (err as Error).message);
+                          }
                         }}
                       >
                         {s.is_published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -640,9 +647,13 @@ export function AdminDashboardPage() {
                         variant="ghost"
                         onClick={async () => {
                           if (!window.confirm(`Delete subject ${s.code}?`)) return;
-                          await api.deleteSubject(s.id);
-                          await loadSubjects();
-                          notify('ok', `Deleted ${s.code}`);
+                          try {
+                            await api.deleteSubject(s.id);
+                            await loadSubjects();
+                            notify('ok', `Deleted ${s.code}`);
+                          } catch (err) {
+                            notify('err', (err as Error).message);
+                          }
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5 text-rose-500" />
@@ -725,8 +736,12 @@ export function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={async () => {
-                        await api.deleteModule(m.id);
-                        await loadSubjectScopedData(selectedSubjectId);
+                        try {
+                          await api.deleteModule(m.id);
+                          await loadSubjectScopedData(selectedSubjectId);
+                        } catch (err) {
+                          notify('err', (err as Error).message);
+                        }
                       }}
                       className="text-rose-500 hover:underline cursor-pointer"
                     >
@@ -826,8 +841,12 @@ export function AdminDashboardPage() {
                       <button
                         type="button"
                         onClick={async () => {
-                          await api.deleteTopic(t.id);
-                          await loadSubjectScopedData(selectedSubjectId);
+                          try {
+                            await api.deleteTopic(t.id);
+                            await loadSubjectScopedData(selectedSubjectId);
+                          } catch (err) {
+                            notify('err', (err as Error).message);
+                          }
                         }}
                         className="text-rose-500 hover:underline cursor-pointer"
                       >
@@ -874,7 +893,7 @@ export function AdminDashboardPage() {
                         const uploaded = await api.uploadFile(file);
                         const category = uploadOverrides[uploadKey(file)]?.category || uploadCategory;
                         const categoryType: Record<string, string> = {'KTU Notes':'original_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Important Questions':'exam_notes','Reference Materials':'reference_notes','Assignments':'exam_notes','Other Resources':'exam_notes'};
-                        await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (uploadQueue.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: 'pdf', file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
+                        await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, scheme_id: activeSubject?.scheme_id ?? null, semester_id: activeSubject?.semester_id ?? null, academic_year_id: activeSubject?.academic_year_id ?? null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (uploadQueue.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: 'pdf', file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
                         completed++;
                         setUploadQueue((queue) => queue.filter((queued) => uploadKey(queued) !== uploadKey(file)));
                       }
@@ -897,6 +916,9 @@ export function AdminDashboardPage() {
                     await api.createResource({
                       subject_id: selectedSubjectId,
                       module_id: resForm.module_id ? Number(resForm.module_id) : null,
+                      scheme_id: activeSubject?.scheme_id ?? null,
+                      semester_id: activeSubject?.semester_id ?? null,
+                      academic_year_id: activeSubject?.academic_year_id ?? null,
                       title: resForm.title,
                       description: resForm.description,
                       resource_type: resForm.resource_type,
@@ -1031,7 +1053,7 @@ export function AdminDashboardPage() {
                 <p className="mt-1 text-xs text-slate-500">Separate PDF attachment for this subject.</p>
                 {subjectSyllabus && <p className="my-2 truncate text-xs">{subjectSyllabus.file_name} · {subjectSyllabus.is_published ? 'Published' : 'Draft'}</p>}
                 <label className="mt-2 inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-xs font-medium"><FileUp className="mr-1 h-3.5 w-3.5"/>{subjectSyllabus ? 'Replace syllabus PDF' : 'Upload syllabus PDF'}<input type="file" accept=".pdf,application/pdf" className="sr-only" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const title = window.prompt('Optional syllabus title', subjectSyllabus?.title || 'Official Syllabus') || 'Official Syllabus'; const description = window.prompt('Optional description', '') || ''; await api.saveSyllabus(selectedSubjectId, file, { title, description, is_published: true }); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Official syllabus uploaded.'); } catch (error) { notify('err', (error as Error).message); } finally { e.target.value = ''; } }} /></label>
-                {subjectSyllabus && <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const title = window.prompt('Syllabus title', subjectSyllabus.title); if (title === null) return; const description = window.prompt('Syllabus description', ''); await api.updateSyllabusMetadata(selectedSubjectId, { title, description: description || '' }); await loadSubjectScopedData(selectedSubjectId); }}>Edit details</Button><Button size="sm" variant="outline" onClick={async () => { await api.setSyllabusPublished(selectedSubjectId, !subjectSyllabus.is_published); await loadSubjectScopedData(selectedSubjectId); }}> {subjectSyllabus.is_published ? 'Unpublish' : 'Publish'} </Button><Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm('Delete the official syllabus PDF?')) return; await api.deleteSyllabus(selectedSubjectId); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Syllabus deleted.'); }}><Trash2 className="h-4 w-4 text-rose-500"/>Delete</Button></div>}
+                {subjectSyllabus && <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const title = window.prompt('Syllabus title', subjectSyllabus.title); if (title === null) return; const description = window.prompt('Syllabus description', ''); try { await api.updateSyllabusMetadata(selectedSubjectId, { title, description: description || '' }); await loadSubjectScopedData(selectedSubjectId); } catch (err) { notify('err', (err as Error).message); } }}>Edit details</Button><Button size="sm" variant="outline" onClick={async () => { try { await api.setSyllabusPublished(selectedSubjectId, !subjectSyllabus.is_published); await loadSubjectScopedData(selectedSubjectId); } catch (err) { notify('err', (err as Error).message); } }}> {subjectSyllabus.is_published ? 'Unpublish' : 'Publish'} </Button><Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm('Delete the official syllabus PDF?')) return; try { await api.deleteSyllabus(selectedSubjectId); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Syllabus deleted.'); } catch (err) { notify('err', (err as Error).message); } }}><Trash2 className="h-4 w-4 text-rose-500"/>Delete</Button></div>}
               </div>
             </CardContent>
           </Card>
@@ -1082,8 +1104,12 @@ export function AdminDashboardPage() {
                             const description = window.prompt('Description', r.description || '');
                             const category = window.prompt('Category', r.category || 'Other Resources');
                             const categoryType: Record<string, string> = {'KTU Notes':'original_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Reference Materials':'reference_notes'};
-                            await api.patchResource(r.id, { title: title.trim(), description: description ?? r.description, category: category || r.category, resource_type: categoryType[category || ''] || r.resource_type });
-                            await loadSubjectScopedData(selectedSubjectId);
+                            try {
+                              await api.patchResource(r.id, { title: title.trim(), description: description ?? r.description, category: category || r.category, resource_type: categoryType[category || ''] || r.resource_type });
+                              await loadSubjectScopedData(selectedSubjectId);
+                            } catch (err) {
+                              notify('err', (err as Error).message);
+                            }
                           }}
                         >Edit</Button>
                         {r.file_path && <label className="inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-xs font-medium"><FileUp className="mr-1 h-3.5 w-3.5"/>Replace<input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await api.replaceResourceFile(r.id, file); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Resource file replaced.'); } catch (error) { notify('err', (error as Error).message); } finally { e.target.value = ''; } }} /></label>}
@@ -1091,8 +1117,12 @@ export function AdminDashboardPage() {
                           size="sm"
                           variant="outline"
                           onClick={async () => {
-                            await api.patchResource(r.id, { is_published: !r.is_published });
-                            await loadSubjectScopedData(selectedSubjectId);
+                            try {
+                              await api.patchResource(r.id, { is_published: !r.is_published });
+                              await loadSubjectScopedData(selectedSubjectId);
+                            } catch (err) {
+                              notify('err', (err as Error).message);
+                            }
                           }}
                         >
                           {r.is_published ? 'Unpublish' : 'Publish'}
@@ -1101,9 +1131,13 @@ export function AdminDashboardPage() {
                           size="sm"
                           variant="ghost"
                           onClick={async () => {
-                            await api.deleteResource(r.id);
-                            await loadSubjectScopedData(selectedSubjectId);
-                            await loadSubjects();
+                            try {
+                              await api.deleteResource(r.id);
+                              await loadSubjectScopedData(selectedSubjectId);
+                              await loadSubjects();
+                            } catch (err) {
+                              notify('err', (err as Error).message);
+                            }
                           }}
                         >
                           <Trash2 className="h-4 w-4 text-rose-500" />
@@ -1239,9 +1273,13 @@ export function AdminDashboardPage() {
                         size="sm"
                         variant="ghost"
                         onClick={async () => {
-                          await api.deleteQuestion(q.id);
-                          await loadSubjectScopedData(selectedSubjectId);
-                          await loadSubjects();
+                          try {
+                            await api.deleteQuestion(q.id);
+                            await loadSubjectScopedData(selectedSubjectId);
+                            await loadSubjects();
+                          } catch (err) {
+                            notify('err', (err as Error).message);
+                          }
                         }}
                       >
                         <Trash2 className="h-4 w-4 text-rose-500" />
@@ -1336,8 +1374,12 @@ export function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={async () => {
-                        await api.deleteProgram(p.id);
-                        await loadSubjectScopedData(selectedSubjectId);
+                        try {
+                          await api.deleteProgram(p.id);
+                          await loadSubjectScopedData(selectedSubjectId);
+                        } catch (err) {
+                          notify('err', (err as Error).message);
+                        }
                       }}
                       className="text-rose-500 cursor-pointer"
                     >
@@ -1425,8 +1467,12 @@ export function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={async () => {
-                        await api.deleteRevisionItem(ri.id);
-                        await loadSubjectScopedData(selectedSubjectId);
+                        try {
+                          await api.deleteRevisionItem(ri.id);
+                          await loadSubjectScopedData(selectedSubjectId);
+                        } catch (err) {
+                          notify('err', (err as Error).message);
+                        }
                       }}
                       className="text-rose-500 cursor-pointer"
                     >

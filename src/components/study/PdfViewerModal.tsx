@@ -9,6 +9,7 @@ interface PdfViewerModalProps {
   onClose: () => void;
   title: string;
   fileUrl: string | null;
+  downloadUrl?: string | null;
   fileName?: string | null;
   fileSizeBytes?: number | null;
 }
@@ -18,11 +19,17 @@ export function PdfViewerModal({
   onClose,
   title,
   fileUrl,
+  downloadUrl: explicitDownloadUrl,
   fileName,
   fileSizeBytes,
 }: PdfViewerModalProps) {
   if (!fileUrl) return null;
-  const downloadUrl = fileUrl.includes('?') ? `${fileUrl}&download=1` : `${fileUrl}?download=1`;
+  const downloadUrl = explicitDownloadUrl
+    || (fileUrl.includes('token=')
+      ? fileUrl
+      : fileUrl.includes('?')
+        ? `${fileUrl}&download=1`
+        : `${fileUrl}?download=1`);
 
   return (
     <Modal

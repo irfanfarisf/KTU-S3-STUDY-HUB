@@ -8,7 +8,7 @@ Students can browse published content without an account. Signing in lets them s
 
 The local `.env.local` already contains `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The configured project is reachable, but its `public.universities` table was not installed when checked. Install the schema before running the app:
 
-1. In the Supabase SQL Editor, run `supabase/migrations/001_initial_schema.sql`, then `supabase/migrations/002_student_accounts_and_import.sql`.
+1. In the Supabase SQL Editor, run `supabase/migrations/001_initial_schema.sql`, then `supabase/migrations/002_student_accounts_and_import.sql`, and then `supabase/migrations/003_resource_uploads_and_syllabi.sql`.
 2. Enable email/password sign-up in Supabase Auth. Set the project's Site URL to the app origin and add `http://localhost:5173/**` plus the deployed site's `https://<your-render-site>/**` to the redirect URL allowlist. Email confirmation can remain enabled; the account page explains the confirmation step.
 3. Create the administrator in **Authentication → Users** and confirm its email. Then add that Auth user's UUID to `public.admins` in SQL Editor:
 

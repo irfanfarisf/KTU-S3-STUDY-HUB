@@ -16,6 +16,7 @@ export function QuickRevisionPage() {
   const { selection } = useStudy();
   const [searchParams, setSearchParams] = useSearchParams();
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectsReady, setSubjectsReady] = useState(false);
   const [items, setItems] = useState<RevisionItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,6 +24,8 @@ export function QuickRevisionPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
 
   useEffect(() => {
+    let active = true;
+    setSubjectsReady(false);
     api
       .getSubjects({
         universityId: selection.universityId,
@@ -30,11 +33,21 @@ export function QuickRevisionPage() {
         branchId: selection.branchId,
         semesterId: selection.semesterId,
       })
-      .then(setSubjects)
-      .catch(console.error);
+      .then((rows) => {
+        if (active) {
+          setSubjects(rows);
+          setSubjectsReady(true);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (active) setSubjectsReady(true);
+      });
+    return () => { active = false; };
   }, [selection]);
 
   useEffect(() => {
+    if (subjectParam !== 'all' && !subjectsReady) return;
     setLoading(true);
     const matched = subjects.find(
       (s) => s.code.toLowerCase() === subjectParam.toLowerCase() || String(s.id) === subjectParam
@@ -42,12 +55,15 @@ export function QuickRevisionPage() {
     api
       .getRevisionItems({
         subjectId: matched?.id,
+        schemeId: selection.schemeId,
+        branchId: selection.branchId,
+        semesterId: selection.semesterId,
         category: categoryFilter !== 'all' ? categoryFilter : undefined,
       })
       .then(setItems)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [subjectParam, subjects, categoryFilter]);
+  }, [subjectParam, subjects, subjectsReady, categoryFilter, selection.schemeId, selection.branchId, selection.semesterId]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
