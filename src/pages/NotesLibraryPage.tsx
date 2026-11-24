@@ -51,18 +51,22 @@ export function NotesLibraryPage() {
       semesterId: selection.semesterId,
     };
     const resourceTypes = resourceTypeParam.split(',');
+    const includeSyllabi = resourceTypes.includes('syllabus') && (impFilter === 'all' || impFilter === 'important');
+    let active = true;
     Promise.all([
       api.getResources({ ...filters, resourceType: resourceTypeParam }),
-      resourceTypes.includes('syllabus') ? api.getSyllabi(filters) : Promise.resolve([]),
+      includeSyllabi ? api.getSyllabi(filters) : Promise.resolve([]),
     ])
-      .then(([resourceRows, syllabi]) =>
+      .then(([resourceRows, syllabi]) => {
+        if (!active) return;
         setResources([
           ...syllabi,
           ...resourceRows.filter((resource) => resource.category !== 'Question Banks'),
-        ])
-      )
+        ]);
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [subjectFilter, typeFilter, impFilter, selection.schemeId, selection.branchId, selection.semesterId]);
 
   const updateParam = (key: string, val: string) => {

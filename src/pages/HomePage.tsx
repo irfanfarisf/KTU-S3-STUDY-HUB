@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, FileText, GraduationCap, Layers3, Search, Share2, Sparkles, UploadCloud } from 'lucide-react';
 import { useStudy } from '@/context/StudyContext';
-import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -17,6 +16,12 @@ export function HomePage() {
   const [branchId, setBranchId] = useState('');
   const [semesterId, setSemesterId] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (location.hash === '#browse') {
+      document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [location.hash]);
   useEffect(() => { if (hierarchy) { setBranchId(String(hierarchy.branches.find(b => b.code === 'CSE')?.id ?? hierarchy.branches[0]?.id ?? '')); setSemesterId(String(hierarchy.semesters.find(s => s.number === 3)?.id ?? hierarchy.semesters[0]?.id ?? '')); } }, [hierarchy]);
   const explore = () => {
     const branch = hierarchy?.branches.find(b => String(b.id) === branchId);

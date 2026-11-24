@@ -58,12 +58,14 @@ export function SubjectDetailPage() {
   const [impFilter, setImpFilter] = useState<string>('all');
   const [qTypeFilter, setQTypeFilter] = useState<string>('all');
   const [pdfPreview, setPdfPreview] = useState<(Resource & { download_url?: string | null }) | null>(null);
+  const [syllabusError, setSyllabusError] = useState('');
   const showPreview = async (resource: Resource) => {
     try {
       const [previewUrl, dlUrl] = await Promise.all([
         api.resourceFileUrl(resource),
         api.resourceFileUrl(resource, true),
       ]);
+      if (!previewUrl) return;
       setPdfPreview({ ...resource, file_url: previewUrl, download_url: dlUrl });
     }
     catch (error) { console.error(error); }
@@ -145,7 +147,12 @@ export function SubjectDetailPage() {
   const paperDocs = resources.filter((r) =>
     ['pyq', 'model_paper', 'solved_paper'].includes(r.resource_type)
   );
-  const questionBankDocs = resources.filter((r) => r.category === 'Question Banks');
+  const allQuestionBankDocs = resources.filter((r) => r.category === 'Question Banks');
+  const questionBankDocs = allQuestionBankDocs.filter(
+    (r) =>
+      (moduleFilter === 'all' || String(r.module_id) === moduleFilter) &&
+      (impFilter === 'all' || r.importance === impFilter)
+  );
 
   const filteredQuestions = questions.filter(
     (q) =>
@@ -169,7 +176,7 @@ export function SubjectDetailPage() {
     { id: 'ktu_notes', label: 'KTU Notes', count: resources.filter((r) => ['original_notes', 'reference_notes'].includes(r.resource_type)).length, icon: FileText },
     { id: 'handwritten_notes', label: 'Handwritten Notes', count: resources.filter((r) => r.resource_type === 'handwritten_notes').length, icon: PenTool },
     { id: 'pyqs', label: 'PYQs & Model Papers', count: paperDocs.length, icon: GraduationCap },
-    { id: 'question_bank', label: 'Question Bank', count: questions.length + questionBankDocs.length, icon: HelpCircle },
+    { id: 'question_bank', label: 'Question Bank', count: questions.length + allQuestionBankDocs.length, icon: HelpCircle },
     { id: 'solved', label: 'Solved Q&A', count: questions.filter((q) => q.is_solved).length, icon: CheckCircle2 },
     { id: 'programs', label: 'Programs / Problems', count: programs.length, icon: FileCode2 },
     { id: 'revision', label: 'Quick Revision', count: revisionItems.length, icon: Zap },
@@ -449,23 +456,48 @@ export function SubjectDetailPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={async () => { const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const [url, dlUrl] = legacy ? await Promise.all([api.resourceFileUrl(officialSyllabus as Resource), api.resourceFileUrl(officialSyllabus as Resource, true)]) : await Promise.all([api.syllabusUrl(officialSyllabus.file_path!), api.syllabusUrl(officialSyllabus.file_path!, true)]); setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, download_url: dlUrl, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' }); }}
+                        onClick={async () => {
+                          setSyllabusError('');
+                          try {
+                            const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path;
+                            const [url, dlUrl] = legacy
+                              ? await Promise.all([api.resourceFileUrl(officialSyllabus as Resource), api.resourceFileUrl(officialSyllabus as Resource, true)])
+                              : await Promise.all([api.syllabusUrl(officialSyllabus.file_path!), api.syllabusUrl(officialSyllabus.file_path!, true)]);
+                            setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, download_url: dlUrl, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' });
+                          } catch (err) {
+                            setSyllabusError((err as Error).message || 'Could not preview syllabus PDF.');
+                          }
+                        }}
                       >
                         <Eye className="h-3.5 w-3.5" />
                         Preview Syllabus PDF
                       </Button>
-                      <a
-                        href="#official-syllabus-download"
-                        onClick={async (e) => { e.preventDefault(); const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path; const url = legacy ? await api.resourceFileUrl(officialSyllabus as Resource, true) : await api.syllabusUrl(officialSyllabus.file_path!, true); if (url) window.open(url, '_blank', 'noopener'); }}
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          setSyllabusError('');
+                          try {
+                            const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path;
+                            const url = legacy
+                              ? await api.resourceFileUrl(officialSyllabus as Resource, true)
+                              : await api.syllabusUrl(officialSyllabus.file_path!, true);
+                            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                          } catch (err) {
+                            setSyllabusError((err as Error).message || 'Could not download syllabus PDF.');
+                          }
+                        }}
                       >
-                        <Button size="sm">
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </Button>
-                      </a>
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </Button>
                     </div>
                   ) : <Badge variant="outline">Official syllabus PDF not uploaded yet</Badge>}
                 </div>
+                {syllabusError && (
+                  <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">
+                    {syllabusError}
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -559,6 +591,29 @@ export function SubjectDetailPage() {
                         <MarkdownRenderer content={res.content_markdown} />
                       </div>
                     )}
+
+                    {(res.file_url || res.file_path) && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
+                        <Button size="sm" variant="outline" onClick={() => void showPreview(res)}>
+                          <Eye className="h-3.5 w-3.5" />
+                          Preview File
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const url = await api.resourceFileUrl(res, true);
+                              if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download{res.file_size_bytes ? ` (${formatBytes(res.file_size_bytes)})` : ''}
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))
@@ -581,7 +636,7 @@ export function SubjectDetailPage() {
                 <ResourceFileCard
                   key={doc.id}
                   resource={doc}
-                  onPreview={() => showPreview(doc)}
+                  onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })}
                 />
               ))
             )}
@@ -597,7 +652,7 @@ export function SubjectDetailPage() {
               </div>
             ) : (
               handwrittenNotes.map((doc) => (
-                <ResourceFileCard key={doc.id} resource={doc} onPreview={() => showPreview(doc)} />
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
               ))
             )}
           </div>
@@ -618,7 +673,7 @@ export function SubjectDetailPage() {
                 <ResourceFileCard
                   key={doc.id}
                   resource={doc}
-                  onPreview={() => showPreview(doc)}
+                  onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })}
                 />
               ))
             )}
@@ -635,7 +690,7 @@ export function SubjectDetailPage() {
                 </h3>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {questionBankDocs.map((doc) => (
-                    <ResourceFileCard key={doc.id} resource={doc} onPreview={() => showPreview(doc)} />
+                    <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
                   ))}
                 </div>
               </section>

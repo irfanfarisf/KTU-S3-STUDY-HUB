@@ -21,7 +21,9 @@ async function result<T>(query: PromiseLike<{ data: unknown; error: { message: s
   return data as T;
 }
 
-function mapSubject(row: Row): Subject {
+function mapSubject(row: Row, includeUnpublished = false): Subject {
+  const countPublished = (items?: Array<{ id: number; is_published?: boolean }>) =>
+    items ? (includeUnpublished ? items.length : items.filter((item) => item.is_published !== false).length) : undefined;
   return {
     ...row,
     branch_code: row.branch?.code,
@@ -30,11 +32,11 @@ function mapSubject(row: Row): Subject {
     semester_label: row.semester?.label,
     scheme_name: row.scheme?.name,
     university_code: row.university?.code,
-    module_count: row.modules?.length,
-    resource_count: row.resources?.length,
-    question_count: row.questions?.length,
-    program_count: row.programs?.length,
-    topic_count: row.topics?.length,
+    module_count: countPublished(row.modules),
+    resource_count: countPublished(row.resources),
+    question_count: countPublished(row.questions),
+    program_count: countPublished(row.programs),
+    topic_count: countPublished(row.topics),
   } as Subject;
 }
 
@@ -93,7 +95,7 @@ function filterBy<T extends Row>(query: any, filters: Record<string, unknown>): 
 }
 
 function metadataSubjectSelect(): string {
-  return '*, university:universities(code), scheme:schemes(name), branch:branches(code,name), semester:semesters(code,label), modules(id), resources(id), questions(id), programs(id), topics(id)';
+  return '*, university:universities(code), scheme:schemes(name), branch:branches(code,name), semester:semesters(code,label), modules(id,is_published), resources(id,is_published), questions(id,is_published), programs(id,is_published), topics(id,is_published)';
 }
 
 async function adminUserFor(userId: string): Promise<AdminUser | null> {
@@ -153,7 +155,7 @@ export const api = {
       semester_id: filters?.semesterId,
     });
     const rows = await result<Row[]>(query);
-    return rows.map(mapSubject);
+    return rows.map((row) => mapSubject(row, Boolean(filters?.includeUnpublished)));
   },
 
   getSubjectDetail: async (codeOrId: string | number, includeUnpublished = false): Promise<SubjectDetailResponse> => {
@@ -357,18 +359,17 @@ export const api = {
     ]);
     const term = params.q?.trim().toLocaleLowerCase();
     const matches = (text: unknown) => !term || String(text ?? '').toLocaleLowerCase().includes(term);
-    const subjectMatch = (row: Row) => !params.subjectId || row.subject_id === params.subjectId || row.id === params.subjectId;
     const moduleMatch = (row: Row) => !params.moduleNumber || (row.module?.module_number ?? row.module_number) === params.moduleNumber;
     const out: SearchResultItem[] = [];
     const add = (kind: SearchResultItem['kind'], row: Row, title: string, snippet: string, url: string, resourceType?: string, importance?: string, examYear?: string | null) => {
-      const subject = row.subject ?? row;
-      const subjectId = row.subject_id ?? row.id;
-      if (!subjectMatch(row) || !moduleMatch(row) || (params.resourceType && resourceType !== params.resourceType) || (params.importance && importance !== params.importance) || (params.examYear && examYear !== params.examYear) || !matches(`${title} ${snippet} ${subject.code ?? ''} ${subject.name ?? ''}`)) return;
-      out.push({ kind, id: row.id, title, snippet: snippet.slice(0, 240), subject_id: subjectId, subject_code: subject.code ?? '', subject_name: subject.name ?? '', module_number: row.module?.module_number ?? null, module_title: row.module?.title ?? null, url, resource_type: resourceType, importance: importance as SearchResultItem['importance'], exam_year: examYear } as SearchResultItem);
+      const subject = kind === 'subject' ? row : row.subject ?? {};
+      const subjectId = kind === 'subject' ? row.id : row.subject_id;
+      if ((params.subjectId && subjectId !== params.subjectId) || !moduleMatch(row) || (params.resourceType && resourceType !== params.resourceType) || (params.importance && importance !== params.importance) || (params.examYear && examYear !== params.examYear) || !matches(`${title} ${snippet} ${subject.code ?? ''} ${subject.name ?? ''}`)) return;
+      out.push({ kind, id: row.id, title, snippet: snippet.slice(0, 240), subject_id: subjectId, subject_code: subject.code ?? '', subject_name: subject.name ?? '', module_number: row.module?.module_number ?? row.module_number ?? null, module_title: row.module?.title ?? (kind === 'module' ? row.title : null), url, resource_type: resourceType, importance: importance as SearchResultItem['importance'], exam_year: examYear } as SearchResultItem);
     };
     subjects.forEach((r) => add('subject', r, r.name, r.short_description || r.syllabus_summary || '', `/subjects/${r.code}`));
     modules.forEach((r) => add('module', r, `Module ${r.module_number}: ${r.title}`, r.description || r.syllabus_text || '', `/subjects/${r.subject?.code}/module/${r.module_number}`));
-    topics.forEach((r) => add('topic', r, r.title, r.summary || '', `/subjects/${r.subject?.code}/module/${r.module?.module_number}`));
+    topics.forEach((r) => add('topic', r, r.title, r.summary || '', r.module?.module_number ? `/subjects/${r.subject?.code}/module/${r.module.module_number}` : `/subjects/${r.subject?.code}`));
     if (!['question', 'program', 'revision'].includes(params.resourceType || '')) {
       resources.forEach((r) => add('resource', r, r.title, r.description || r.content_markdown || '', r.resource_type === 'pyq' || r.resource_type === 'model_paper' || r.resource_type === 'solved_paper' ? `/pyqs?subject=${r.subject?.id}` : `/notes?subject=${r.subject?.id}`, r.resource_type, r.importance, r.exam_year));
     }
@@ -449,16 +450,30 @@ export const api = {
     return { user: admin };
   },
   uploadFile: async (file: File) => {
-    const allowed = new Set(['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','image/jpeg','image/png','image/webp','text/plain','text/markdown']);
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf','doc','docx','jpg','jpeg','png','webp','md','txt'].includes(ext || '') || !allowed.has(file.type)) throw new Error('Choose a PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP, or supported text file.');
+    const extMimeMap: Record<string, string> = {
+      pdf: 'application/pdf',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+      txt: 'text/plain',
+      md: 'text/markdown',
+    };
+    const allowed = new Set(Object.values(extMimeMap));
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const resolvedMime = file.type || extMimeMap[ext] || '';
+    if (!extMimeMap[ext] || !allowed.has(resolvedMime)) {
+      throw new Error('Choose a PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP, or supported text file.');
+    }
     if (!file.size || file.size > 25 * 1024 * 1024) throw new Error('File size must be between 1 byte and 25 MB.');
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-100);
     const path = `${crypto.randomUUID()}-${safeName}`;
     const storage = getSupabase().storage.from('study-resources');
-    const { error } = await storage.upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+    const { error } = await storage.upload(path, file, { contentType: resolvedMime, upsert: false });
     if (error) throw new Error(error.message);
-    return { file_url: '', file_path: path, file_name: file.name, stored_name: path, file_size_bytes: file.size, mime_type: file.type };
+    return { file_url: '', file_path: path, file_name: file.name, stored_name: path, file_size_bytes: file.size, mime_type: resolvedMime };
   },
   resourceFileUrl: async (resource: Resource, download = false): Promise<string | null> => {
     if (resource.file_path) {
@@ -493,7 +508,7 @@ export const api = {
   replaceResourceFile: async (id: number, file: File) => {
     const current = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());
     const next = await api.uploadFile(file);
-    await result(getSupabase().from('resources').update({ file_path: next.file_path, file_url: null, file_name: next.file_name, file_size_bytes: next.file_size_bytes, mime_type: next.mime_type, content_format: 'pdf' }).eq('id', id));
+    await result(getSupabase().from('resources').update({ file_path: next.file_path, file_url: null, file_name: next.file_name, file_size_bytes: next.file_size_bytes, mime_type: next.mime_type, content_format: next.mime_type === 'application/pdf' ? 'pdf' : 'mixed' }).eq('id', id));
     if (current?.file_path) await getSupabase().storage.from('study-resources').remove([current.file_path]);
   },
   saveSyllabus: async (subjectId: number, file: File, metadata: { title?: string; description?: string; is_published: boolean }) => {

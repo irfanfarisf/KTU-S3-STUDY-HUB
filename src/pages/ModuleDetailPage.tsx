@@ -85,8 +85,9 @@ export function ModuleDetailPage() {
   } = data;
 
   const examNotes = resources.filter(
-    (r) => r.resource_type === 'exam_notes' || r.resource_type === 'diagram'
+    (r) => (r.resource_type === 'exam_notes' || r.resource_type === 'diagram') && r.category !== 'Question Banks'
   );
+  const questionBankDocs = resources.filter((r) => r.category === 'Question Banks');
   const originalNotes = resources.filter(
     (r) => r.resource_type === 'original_notes' || r.resource_type === 'reference_notes'
   );
@@ -282,34 +283,44 @@ export function ModuleDetailPage() {
           <SectionEmpty text="No simplified notes added for this module yet." />
         ) : (
           <div className="space-y-4">
-            {examNotes.map((note) => (
-              <Card key={note.id}>
-                <CardContent className="p-5 sm:p-6">
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        'rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                        IMPORTANCE_META[note.importance].className
-                      )}
-                    >
-                      {IMPORTANCE_META[note.importance].label}
-                    </span>
-                    <Badge variant="outline">Simplified Exam Notes</Badge>
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{note.title}</h3>
-                  {note.diagram_key && (
-                    <div className="mt-4">
-                      <DiagramGallery diagramKey={note.diagram_key} />
+            {examNotes.map((note) =>
+              (note.file_url || note.file_path) && !note.content_markdown ? (
+                <ResourceFileCard
+                  key={note.id}
+                  resource={note}
+                  onPreview={(url, downloadUrl) =>
+                    setPdfPreview({ ...note, file_url: url || note.file_url, download_url: downloadUrl })
+                  }
+                />
+              ) : (
+                <Card key={note.id}>
+                  <CardContent className="p-5 sm:p-6">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          'rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                          IMPORTANCE_META[note.importance].className
+                        )}
+                      >
+                        {IMPORTANCE_META[note.importance].label}
+                      </span>
+                      <Badge variant="outline">Simplified Exam Notes</Badge>
                     </div>
-                  )}
-                  {note.content_markdown && (
-                    <div className="mt-4">
-                      <MarkdownRenderer content={note.content_markdown} />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{note.title}</h3>
+                    {note.diagram_key && (
+                      <div className="mt-4">
+                        <DiagramGallery diagramKey={note.diagram_key} />
+                      </div>
+                    )}
+                    {note.content_markdown && (
+                      <div className="mt-4">
+                        <MarkdownRenderer content={note.content_markdown} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            )}
           </div>
         )}
       </section>
@@ -376,13 +387,30 @@ export function ModuleDetailPage() {
           title="6. Module Question Bank"
           subtitle="Test yourself — click Reveal Answer to check your response"
         />
-        {questions.length === 0 ? (
+        {questions.length === 0 && questionBankDocs.length === 0 ? (
           <SectionEmpty text="No question bank entries for this module yet." />
         ) : (
-          <div className="space-y-3">
-            {questions.map((q) => (
-              <QuestionCard key={`qb-${q.id}`} question={q} />
-            ))}
+          <div className="space-y-4">
+            {questionBankDocs.length > 0 && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {questionBankDocs.map((doc) => (
+                  <ResourceFileCard
+                    key={doc.id}
+                    resource={doc}
+                    onPreview={(url, downloadUrl) =>
+                      setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })
+                    }
+                  />
+                ))}
+              </div>
+            )}
+            {questions.length > 0 && (
+              <div className="space-y-3">
+                {questions.map((q) => (
+                  <QuestionCard key={`qb-${q.id}`} question={q} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>

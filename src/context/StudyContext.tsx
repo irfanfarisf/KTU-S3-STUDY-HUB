@@ -147,6 +147,12 @@ export function StudyProvider({ children }: { children: React.ReactNode }) {
       if (localOnly.length) {
         await Promise.all(localOnly.map(({ record_key, record_type, payload }) => api.saveStudentRecord({ record_key, record_type, payload })));
       }
+      if (localRecords.length) {
+        localStorage.removeItem(BOOKMARKS_KEY);
+        localStorage.removeItem(TOPICS_KEY);
+        localStorage.removeItem(PRACTICED_KEY);
+      }
+      if (cancelled) return;
       const merged = [...records, ...localOnly];
       setBookmarks(merged.filter((r) => r.record_type === 'bookmark').map((r) => r.payload as unknown as BookmarkEntry));
       setCompletedTopicIds(merged.filter((r) => r.record_type === 'topic_complete').map((r) => Number(r.payload.topic_id)));
