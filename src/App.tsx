@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { StudyProvider } from '@/context/StudyContext';
 import { Navbar } from '@/components/layout/Navbar';
 import { HierarchySelectorBar } from '@/components/layout/HierarchySelectorBar';
@@ -17,6 +17,33 @@ const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ defaul
 const BookmarksProgressPage = lazy(() => import('@/pages/BookmarksProgressPage').then((m) => ({ default: m.BookmarksProgressPage })));
 const AdminDashboardPage = lazy(() => import('@/pages/AdminDashboardPage').then((m) => ({ default: m.AdminDashboardPage })));
 const AccountPage = lazy(() => import('@/pages/AccountPage').then((m) => ({ default: m.AccountPage })));
+const AcademicSectionPage = lazy(() => import('@/pages/AcademicSectionPage').then((m) => ({ default: m.AcademicSectionPage })));
+const SubmitResourcePage = lazy(() => import('@/pages/SubmitResourcePage').then((m) => ({ default: m.SubmitResourcePage })));
+
+function AppLayout() {
+  const location = useLocation();
+  return <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <Navbar />
+    {location.pathname !== '/' && <HierarchySelectorBar />}
+    <main className="flex-1"><Suspense fallback={<PageFallback />}><Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/academic/:branch/:semester" element={<AcademicSectionPage />} />
+      <Route path="/submit-resource" element={<SubmitResourcePage />} />
+      <Route path="/subjects" element={<SubjectsPage />} />
+      <Route path="/subjects/:code" element={<SubjectDetailPage />} />
+      <Route path="/subjects/:code/module/:moduleNumber" element={<ModuleDetailPage />} />
+      <Route path="/notes" element={<NotesLibraryPage />} />
+      <Route path="/pyqs" element={<PyqLibraryPage />} />
+      <Route path="/question-bank" element={<QuestionBankPage />} />
+      <Route path="/quick-revision" element={<QuickRevisionPage />} />
+      <Route path="/search" element={<SearchPage />} />
+      <Route path="/bookmarks" element={<BookmarksProgressPage />} />
+      <Route path="/admin" element={<AdminDashboardPage />} />
+      <Route path="/account" element={<AccountPage />} />
+    </Routes></Suspense></main>
+    <Footer />
+  </div>;
+}
 
 function PageFallback() {
   return (
@@ -29,31 +56,7 @@ function PageFallback() {
 export function App() {
   return (
     <StudyProvider>
-      <BrowserRouter>
-        <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-          <Navbar />
-          <HierarchySelectorBar />
-          <main className="flex-1">
-            <Suspense fallback={<PageFallback />}>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/subjects" element={<SubjectsPage />} />
-                <Route path="/subjects/:code" element={<SubjectDetailPage />} />
-                <Route path="/subjects/:code/module/:moduleNumber" element={<ModuleDetailPage />} />
-                <Route path="/notes" element={<NotesLibraryPage />} />
-                <Route path="/pyqs" element={<PyqLibraryPage />} />
-                <Route path="/question-bank" element={<QuestionBankPage />} />
-                <Route path="/quick-revision" element={<QuickRevisionPage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/bookmarks" element={<BookmarksProgressPage />} />
-                <Route path="/admin" element={<AdminDashboardPage />} />
-                <Route path="/account" element={<AccountPage />} />
-              </Routes>
-            </Suspense>
-          </main>
-          <Footer />
-        </div>
-      </BrowserRouter>
+      <BrowserRouter><AppLayout /></BrowserRouter>
     </StudyProvider>
   );
 }

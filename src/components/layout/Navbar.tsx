@@ -50,7 +50,7 @@ export function Navbar() {
           </div>
           <div className="leading-tight">
             <div className="text-sm font-bold text-slate-900 dark:text-white sm:text-base">
-              KTU S3 Study Hub
+              KTU Study Hub
             </div>
             <div className="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block">
               Everything for your semester, in one place.

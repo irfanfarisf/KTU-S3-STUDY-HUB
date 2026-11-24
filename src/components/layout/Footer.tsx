@@ -13,14 +13,12 @@ export function Footer() {
                 <GraduationCap className="h-4 w-4" />
               </div>
               <span className="text-sm font-bold text-slate-900 dark:text-white">
-                KTU S3 Study Hub
+                KTU Study Hub
               </span>
             </div>
             <p className="mt-3 max-w-md text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              Everything for your semester, in one place. Structured around the APJ Abdul Kalam
-              Technological University (KTU) 2024 Scheme curriculum, with clear separation
-              between official syllabus outlines, student/faculty notes, and simplified exam
-              revision material.
+              Everything for your semester, in one place. Browse resources by branch, semester,
+              subject and module, or help other KTU students by sharing useful academic materials.
             </p>
           </div>
 
@@ -29,7 +27,8 @@ export function Footer() {
               Study Libraries
             </h4>
             <ul className="mt-3 space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <li><Link to="/subjects" className="hover:text-indigo-600 dark:hover:text-indigo-400">All S3 Subjects</Link></li>
+              <li><Link to="/#browse" className="hover:text-indigo-600 dark:hover:text-indigo-400">Browse branches &amp; semesters</Link></li>
+              <li><Link to="/submit-resource" className="hover:text-indigo-600 dark:hover:text-indigo-400">Submit a Resource</Link></li>
               <li><Link to="/notes" className="hover:text-indigo-600 dark:hover:text-indigo-400">Exam &amp; Handwritten Notes</Link></li>
               <li><Link to="/pyqs" className="hover:text-indigo-600 dark:hover:text-indigo-400">PYQ &amp; Model Papers</Link></li>
               <li><Link to="/question-bank" className="hover:text-indigo-600 dark:hover:text-indigo-400">Question Bank</Link></li>
@@ -50,9 +49,10 @@ export function Footer() {
         </div>
 
         <div className="mt-8 flex flex-col items-start justify-between gap-2 border-t border-slate-200 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center dark:border-slate-800">
-          <span>KTU 2024 Scheme • Multi-Subject Academic Resource Architecture</span>
+          <span>KTU Study Hub • Student-oriented academic resources</span>
           <span>No login required — save progress locally or sign in to sync across devices</span>
         </div>
+        <p className="mt-4 text-[11px] leading-relaxed text-slate-400">KTU Study Hub is an independent student-oriented academic resource platform and is not an official website of APJ Abdul Kalam Technological University.</p>
       </div>
     </footer>
   );

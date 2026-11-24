@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   BookOpen,
+  Bell,
+  Check,
   Eye,
   EyeOff,
   FileCode2,
@@ -25,6 +27,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { RESOURCE_TYPE_LABELS } from '@/lib/utils';
+import { getSupabase } from '@/lib/supabase';
 
 type AdminTab =
   | 'subjects'
@@ -33,7 +36,8 @@ type AdminTab =
   | 'questions'
   | 'programs_revision'
   | 'hierarchy'
-  | 'bulk';
+  | 'bulk'
+  | 'submissions';
 
 export function AdminDashboardPage() {
   const { hierarchy, refreshHierarchy, adminUser, setAdminSession } = useStudy();
@@ -47,6 +51,16 @@ export function AdminDashboardPage() {
   // CMS state
   const [tab, setTab] = useState<AdminTab>('subjects');
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [submissionSubjects, setSubmissionSubjects] = useState<Record<string, string>>({});
+  const [submissionNotes, setSubmissionNotes] = useState<Record<string, string>>({});
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [submissionBranchFilter, setSubmissionBranchFilter] = useState('all');
+  const [submissionSemesterFilter, setSubmissionSemesterFilter] = useState('all');
+  const [submissionCategoryFilter, setSubmissionCategoryFilter] = useState('all');
+  const [submissionDateFilter, setSubmissionDateFilter] = useState('');
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<number>(0);
   const [modules, setModules] = useState<ModuleItem[]>([]);
@@ -118,6 +132,27 @@ export function AdminDashboardPage() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [uploadOverrides, setUploadOverrides] = useState<Record<string, { title: string; category: string }>>({});
   const uploadKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
+
+  const loadNotifications = useCallback(async () => {
+    const { data, error } = await getSupabase().from('admin_notifications').select('*, submission:community_submissions(id,title,status,branch:branches(code),semester:semesters(code),subject_name,subject_code,created_at)').is('archived_at', null).order('created_at', { ascending: false }).limit(30);
+    if (!error) setNotifications(data || []);
+  }, []);
+  const loadSubmissions = useCallback(async () => {
+    const { data, error } = await getSupabase().from('community_submissions').select('*, branch:branches(id,name,code), semester:semesters(id,number,code), subject:subjects(id,code,name), notification:admin_notifications(id,read_at)').order('created_at', { ascending: false });
+    if (!error) setSubmissions(data || []);
+  }, []);
+  useEffect(() => {
+    if (!adminUser) return;
+    void loadNotifications();
+    const channel = getSupabase().channel('admin-submission-notifications').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_notifications' }, (payload) => {
+      setNotifications((current) => [payload.new, ...current.filter((item) => item.id !== payload.new.id)]);
+      setStatusMsg({ type: 'ok', text: 'A new resource submission is awaiting review.' });
+      void loadNotifications();
+      void loadSubmissions();
+    }).subscribe();
+    return () => { void getSupabase().removeChannel(channel); };
+  }, [adminUser?.id, loadNotifications, loadSubmissions]);
+  useEffect(() => { if (tab === 'submissions' && adminUser) void loadSubmissions(); }, [tab, adminUser?.id, loadSubmissions]);
 
   // Form states: Question
   const [qForm, setQForm] = useState({
@@ -456,6 +491,7 @@ export function AdminDashboardPage() {
     { id: 'programs_revision', label: 'Programs & Revision', icon: FileCode2 },
     { id: 'hierarchy', label: 'Branches & Sems', icon: Plus },
     { id: 'bulk', label: 'Bulk Import', icon: Upload },
+    { id: 'submissions', label: `Community Submissions${submissions.filter((s) => s.status === 'pending').length ? ` (${submissions.filter((s) => s.status === 'pending').length})` : ''}`, icon: Bell },
   ];
 
   const activeSubject = subjects.find((s) => s.id === selectedSubjectId);
@@ -477,6 +513,16 @@ export function AdminDashboardPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <Button variant="outline" size="sm" aria-label="Notifications" onClick={() => setNotificationOpen((open) => !open)}>
+              <Bell className="h-4 w-4" />
+              {notifications.filter((n) => !n.read_at).length > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-600 px-1 text-[10px] leading-4 text-white">{notifications.filter((n) => !n.read_at).length}</span>}
+            </Button>
+            {notificationOpen && <div className="absolute right-0 z-50 mt-2 max-h-[28rem] w-[min(22rem,calc(100vw-2rem))] overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center justify-between gap-2 border-b pb-2 dark:border-slate-800"><strong className="text-sm">Notifications</strong><button className="text-[11px] font-semibold text-indigo-600" onClick={async () => { await getSupabase().from('admin_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadNotifications(); }}>Mark all read</button></div>
+              {notifications.length === 0 ? <p className="py-5 text-center text-xs text-slate-500">No notifications yet.</p> : notifications.map((n) => <button key={n.id} className={`block w-full rounded-xl p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 ${n.read_at ? 'opacity-70' : ''}`} onClick={async () => { if (!n.read_at) await getSupabase().from('admin_notifications').update({ read_at: new Date().toISOString() }).eq('id', n.id); await loadNotifications(); setSelectedSubmissionId(n.submission_id); setResourceTypeFilter('all'); setTab('submissions'); setNotificationOpen(false); void loadSubmissions(); window.setTimeout(()=>document.getElementById(`submission-${n.submission_id}`)?.scrollIntoView({behavior:'smooth',block:'center'}),150); }}><span className="block text-xs font-bold">{n.title}</span><span className="mt-1 block text-[11px] leading-5 text-slate-600 dark:text-slate-300">{n.message}</span><span className="mt-1 block text-[10px] text-slate-400">{new Date(n.created_at).toLocaleString()}</span></button>)}
+            </div>}
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -498,6 +544,21 @@ export function AdminDashboardPage() {
         >
           {statusMsg.text}
         </div>
+      )}
+
+      {tab === 'submissions' && (
+        <section className="mt-5 space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold">Community Submissions</h2><p className="mt-1 text-xs text-slate-500">Review student contributions. Pending files remain private until you publish them.</p></div><div className="flex flex-wrap gap-2"><Input value={cmsSearch} onChange={(e) => setCmsSearch(e.target.value)} placeholder="Search submissions..." className="w-56"/><Select value={resourceTypeFilter} onChange={(e) => setResourceTypeFilter(e.target.value)}><option value="all">All statuses</option><option value="pending">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></Select><Select value={submissionBranchFilter} onChange={e=>setSubmissionBranchFilter(e.target.value)}><option value="all">All branches</option>{hierarchy?.branches.map(b=><option key={b.id} value={b.id}>{b.code}</option>)}</Select><Select value={submissionSemesterFilter} onChange={e=>setSubmissionSemesterFilter(e.target.value)}><option value="all">All semesters</option>{hierarchy?.semesters.map(s=><option key={s.id} value={s.id}>{s.code}</option>)}</Select><Select value={submissionCategoryFilter} onChange={e=>setSubmissionCategoryFilter(e.target.value)}><option value="all">All categories</option>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map(c=><option key={c}>{c}</option>)}</Select><Input type="date" aria-label="Submission date" value={submissionDateFilter} onChange={e=>setSubmissionDateFilter(e.target.value)} className="w-40"/></div></div>
+          {submissions.filter((item) => (resourceTypeFilter === 'all' || item.status === resourceTypeFilter) && (submissionBranchFilter==='all'||String(item.branch_id)===submissionBranchFilter) && (submissionSemesterFilter==='all'||String(item.semester_id)===submissionSemesterFilter) && (submissionCategoryFilter==='all'||item.category===submissionCategoryFilter) && (!submissionDateFilter||item.created_at.slice(0,10)===submissionDateFilter) && `${item.title} ${item.branch?.code} ${item.subject_name} ${item.subject_code} ${item.category}`.toLowerCase().includes(cmsSearch.toLowerCase())).map((item) => {
+            const targetSubjects = subjects.filter((subject) => subject.branch_id === item.branch_id && subject.semester_id === item.semester_id);
+            return <Card id={`submission-${item.id}`} key={item.id} className={selectedSubmissionId===item.id?'ring-2 ring-indigo-500':''}><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{item.title}</h3><Badge variant={item.status === 'approved' ? 'emerald' : item.status === 'pending' ? 'amber' : 'outline'}>{item.status === 'pending' ? 'Pending Review' : item.status}</Badge></div><p className="mt-1 text-xs text-slate-500">{item.branch?.code} · {item.semester?.code} · {item.subject?.code || item.subject_code || item.subject_name || 'Subject to verify'} · {item.category}</p><p className="mt-1 text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString()} · {item.original_file_name} · {(item.file_size_bytes/1048576).toFixed(2)} MB</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={async () => { try { const { data, error } = await getSupabase().storage.from('pending-submissions').createSignedUrl(item.file_path, 120); if (error) throw error; window.open(data.signedUrl, '_blank', 'noopener,noreferrer'); } catch (err) { notify('err', (err as Error).message); } }}>Preview / Download</Button></div></div>
+              {(item.contributor_name || item.contributor_email || item.description || item.source_info || item.internal_review_notes || item.rejection_reason) && <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-950 sm:grid-cols-2"><div>{item.contributor_name && <p>Contributor: {item.contributor_name}</p>}{item.contributor_email && <p>Email: {item.contributor_email}</p>}{item.module_label && <p>Module: {item.module_label}</p>}{item.topic_label && <p>Topic: {item.topic_label}</p>}</div><div>{item.description && <p>{item.description}</p>}{item.source_info && <p className="mt-1">Source: {item.source_info}</p>}{item.internal_review_notes && <p className="mt-1">Internal notes: {item.internal_review_notes}</p>}{item.rejection_reason && <p className="mt-1">Rejection reason: {item.rejection_reason}</p>}</div></div>}
+              {item.status === 'pending' && <div className="mt-3 flex items-end gap-2"><label className="flex-1 text-[11px] font-semibold text-slate-600">Internal review notes<textarea rows={2} value={submissionNotes[item.id] ?? item.internal_review_notes ?? ''} onChange={e=>setSubmissionNotes((state)=>({...state,[item.id]:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"/></label><Button size="sm" variant="outline" onClick={async()=>{const {error}=await getSupabase().from('community_submissions').update({internal_review_notes:submissionNotes[item.id]||null}).eq('id',item.id).eq('status','pending');if(error)notify('err',error.message);else{await loadSubmissions();notify('ok','Internal review notes saved.')}}}>Save notes</Button></div>}
+              {item.status === 'pending' && <div className="mt-4 flex flex-wrap items-end gap-2"><label className="min-w-64 flex-1 text-[11px] font-semibold text-slate-600">Confirm academic subject<select value={submissionSubjects[item.id] || String(item.subject_id || '')} onChange={(e) => setSubmissionSubjects((state) => ({ ...state, [item.id]: e.target.value }))} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"><option value="">Choose verified subject…</option>{targetSubjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.code} — {subject.name}</option>)}</select></label><Button size="sm" disabled={!Number(submissionSubjects[item.id] || item.subject_id)} onClick={async () => { let copiedPath=''; try { const { data: file, error: downloadError } = await getSupabase().storage.from('pending-submissions').download(item.file_path); if (downloadError || !file) throw downloadError || new Error('Could not read pending file.'); copiedPath=`community/${item.id}/${item.original_file_name.replace(/[^a-zA-Z0-9._-]+/g,'-')}`; const { error: uploadError }=await getSupabase().storage.from('study-resources').upload(copiedPath,file,{contentType:item.mime_type,upsert:false}); if(uploadError)throw uploadError; const {error:approveError}=await getSupabase().rpc('approve_community_submission',{p_submission_id:item.id,p_subject_id:Number(submissionSubjects[item.id]||item.subject_id),p_module_id:null,p_published_file_path:copiedPath}); if(approveError)throw approveError; await loadSubmissions(); await loadNotifications(); notify('ok','Submission approved and added to published resources.'); } catch(err) { if(copiedPath) await getSupabase().storage.from('study-resources').remove([copiedPath]); notify('err',(err as Error).message); } }}> <Check className="h-3.5 w-3.5"/>Approve &amp; Publish</Button><Button size="sm" variant="outline" onClick={async()=>{const reason=window.prompt('Optional rejection reason:')||null;const {error}=await getSupabase().from('community_submissions').update({status:'rejected',reviewed_by:(await api.currentUser())?.id,reviewed_at:new Date().toISOString(),rejection_reason:reason}).eq('id',item.id).eq('status','pending');if(error)notify('err',error.message);else{await loadSubmissions();notify('ok','Submission rejected and kept private.')}}}>Reject</Button><Button size="sm" variant="danger" onClick={async()=>{if(!window.confirm('Delete this submission and its pending file?'))return;const {error}=await getSupabase().from('community_submissions').delete().eq('id',item.id);if(error){notify('err',error.message);return}await getSupabase().storage.from('pending-submissions').remove([item.file_path]);await loadSubmissions();await loadNotifications();}}>Delete</Button></div>}
+            </CardContent></Card>;
+          })}
+          {submissions.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-slate-500">No community submissions yet.</CardContent></Card>}
+        </section>
       )}
 
       {/* CMS Tabs */}

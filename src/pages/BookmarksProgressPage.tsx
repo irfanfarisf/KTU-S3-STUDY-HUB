@@ -167,7 +167,7 @@ export function BookmarksProgressPage() {
       {subjects.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-3 text-lg font-bold text-slate-900 dark:text-white">
-            Jump to S3 Subjects
+            Jump to Current Semester Subjects
           </h2>
           <div className="grid gap-3 sm:grid-cols-3">
             {subjects.map((s) => (

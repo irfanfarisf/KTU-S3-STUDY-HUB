@@ -1,341 +1,52 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  ArrowRight,
-  BookOpen,
-  CheckCircle2,
-  ClipboardList,
-  FileCode2,
-  FileText,
-  GraduationCap,
-  HelpCircle,
-  Layers,
-  PenTool,
-  Search,
-  Sparkles,
-  Zap,
-} from 'lucide-react';
-import type { Subject } from '@shared/types';
-import { api } from '@/lib/api';
+import { ArrowRight, BookOpen, FileText, GraduationCap, Layers3, Search, Share2, Sparkles, UploadCloud } from 'lucide-react';
 import { useStudy } from '@/context/StudyContext';
-import { Card, CardContent } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { Card, CardContent } from '@/components/ui/Card';
 
-const QUICK_ACCESS = [
-  {
-    title: 'All Subjects',
-    desc: 'Browse full S3 curriculum',
-    to: '/subjects',
-    icon: BookOpen,
-    color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 dark:text-indigo-400',
-  },
-  {
-    title: 'Exam-Friendly Notes',
-    desc: 'Short, bulleted & simplified',
-    to: '/notes?type=exam_notes',
-    icon: Sparkles,
-    color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/60 dark:text-blue-400',
-  },
-  {
-    title: 'Handwritten Notes',
-    desc: 'PDFs & classroom sheets',
-    to: '/notes?type=handwritten_notes,original_notes',
-    icon: PenTool,
-    color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-400',
-  },
-  {
-    title: 'PYQs',
-    desc: 'Regular & supplementary papers',
-    to: '/pyqs',
-    icon: GraduationCap,
-    color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400',
-  },
-  {
-    title: 'Question Bank',
-    desc: 'Topic-wise practice & reveal',
-    to: '/question-bank',
-    icon: HelpCircle,
-    color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60 dark:text-purple-400',
-  },
-  {
-    title: 'Model Papers',
-    desc: 'Sample & practice exam sets',
-    to: '/pyqs?examType=model',
-    icon: ClipboardList,
-    color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/60 dark:text-rose-400',
-  },
-  {
-    title: 'Quick Revision',
-    desc: 'Last-minute cram sheets',
-    to: '/quick-revision',
-    icon: Zap,
-    color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-950/60 dark:text-cyan-400',
-  },
-  {
-    title: 'Syllabus',
-    desc: 'KTU 2024 Scheme modules',
-    to: '/notes?type=syllabus',
-    icon: FileText,
-    color: 'text-slate-700 bg-slate-100 dark:bg-slate-800 dark:text-slate-300',
-  },
+const features = [
+  ['Subject-wise notes', 'Organized materials for focused study'], ['Previous year papers', 'Find past exam papers by subject'],
+  ['Question banks', 'Practice questions and answers'], ['Revision materials', 'Quick revision resources where available'],
+  ['PDF and document downloads', 'Preview and download published files'], ['Community contributions', 'Student resources reviewed before publication'],
 ];
 
 export function HomePage() {
-  const { selection, hierarchy, completedTopicIds, bookmarks } = useStudy();
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const { hierarchy } = useStudy();
+  const [branchId, setBranchId] = useState('');
+  const [semesterId, setSemesterId] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    api
-      .getSubjects({
-        universityId: selection.universityId,
-        schemeId: selection.schemeId,
-        branchId: selection.branchId,
-        semesterId: selection.semesterId,
-      })
-      .then((data) => {
-        if (active) setSubjects(data);
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selection.universityId, selection.schemeId, selection.branchId, selection.semesterId]);
-
-  const activeBranch = hierarchy?.branches.find((b) => b.id === selection.branchId);
-  const activeSem = hierarchy?.semesters.find((s) => s.id === selection.semesterId);
-  const activeScheme = hierarchy?.schemes.find((s) => s.id === selection.schemeId);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    navigate(`/search${searchQuery.trim() ? `?q=${encodeURIComponent(searchQuery.trim())}` : ''}`);
+  useEffect(() => { if (hierarchy) { setBranchId(String(hierarchy.branches.find(b => b.code === 'CSE')?.id ?? hierarchy.branches[0]?.id ?? '')); setSemesterId(String(hierarchy.semesters.find(s => s.number === 3)?.id ?? hierarchy.semesters[0]?.id ?? '')); } }, [hierarchy]);
+  const explore = () => {
+    const branch = hierarchy?.branches.find(b => String(b.id) === branchId);
+    const sem = hierarchy?.semesters.find(s => String(s.id) === semesterId);
+    if (branch && sem) navigate(`/academic/${encodeURIComponent(branch.code)}/${sem.number}`);
   };
-
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-      {/* Hero Section */}
-      <section className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900 sm:p-10">
-        <div className="mx-auto max-w-3xl text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3.5 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
-            <Layers className="h-3.5 w-3.5" />
-            {activeScheme?.name || '2024 Scheme'} • {activeBranch?.code || 'CSE'} •{' '}
-            {activeSem?.code || 'S3'}
-          </div>
-
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-5xl">
-            KTU S3 Study Hub
-          </h1>
-          <p className="mt-2 text-base font-semibold text-indigo-600 dark:text-indigo-400 sm:text-lg">
-            Your complete semester study companion.
-          </p>
-          <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300 sm:text-base">
-            Access simplified notes, handwritten notes, previous-year questions, question banks and
-            exam-focused resources for all your S3 subjects.
-          </p>
-
-          {/* Global Search Bar */}
-          <form onSubmit={handleSearchSubmit} className="mt-6 flex flex-col gap-2.5 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by subject (PBCST304, DSA), topic (JDBC, DFA), or question..."
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pr-4 pl-11 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </div>
-            <Button type="submit" size="lg" className="h-12 rounded-2xl px-6">
-              Search Hub
-            </Button>
-          </form>
-
-          {/* Hero Action Buttons */}
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link to="/subjects">
-              <Button variant="primary" size="md">
-                <BookOpen className="h-4 w-4" />
-                Browse Subjects
-              </Button>
-            </Link>
-            <Link to="/notes">
-              <Button variant="outline" size="md">
-                <FileText className="h-4 w-4" />
-                Explore Resources
-              </Button>
-            </Link>
-            <Link to="/quick-revision">
-              <Button variant="secondary" size="md">
-                <Zap className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                Quick Revision
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick-Access Grid */}
-      <section className="mt-10">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white sm:text-xl">
-              Quick Access
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Jump directly to exam-ready materials across your semester
-            </p>
-          </div>
-          {(completedTopicIds.length > 0 || bookmarks.length > 0) && (
-            <Link
-              to="/bookmarks"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {completedTopicIds.length} topics studied • {bookmarks.length} saved
-            </Link>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4">
-          {QUICK_ACCESS.map((item) => (
-            <Link key={item.title} to={item.to} className="group">
-              <Card className="h-full hover:border-indigo-300 hover:shadow-sm dark:hover:border-indigo-700">
-                <CardContent className="flex flex-col gap-3 p-4">
-                  <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${item.color}`}>
-                    <item.icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
-                      {item.title}
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      {item.desc}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* Subject Overview Grid */}
-      <section className="mt-12">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
-              {activeSem?.code || 'S3'} {activeBranch?.code || 'CSE'} Subjects Overview
-            </h2>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
-              Every subject has its own independent syllabus, module notes, question bank, and quick
-              revision space.
-            </p>
-          </div>
-          <Link
-            to="/subjects"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-          >
-            View Full Directory <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <div
-                key={n}
-                className="h-52 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-              />
-            ))}
-          </div>
-        ) : subjects.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                No subjects configured for this Branch / Semester selection yet.
-              </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Switch back to CSE • S3 above or add subjects for this branch in the Admin Dashboard.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {subjects.map((subject) => {
-              const hasFullResources =
-                (subject.resource_count || 0) > 0 || (subject.question_count || 0) > 0;
-
-              return (
-                <Card
-                  key={subject.id}
-                  className="flex flex-col justify-between hover:border-indigo-300 hover:shadow-sm dark:hover:border-indigo-700"
-                >
-                  <CardContent className="flex flex-1 flex-col p-5">
-                    <div className="flex items-start justify-between gap-2">
-                      <Badge variant="indigo" className="font-mono font-semibold">
-                        {subject.code}
-                      </Badge>
-                      <Badge variant={hasFullResources ? 'emerald' : 'outline'}>
-                        {hasFullResources ? 'Notes & Q-Bank Live' : 'Syllabus Ready'}
-                      </Badge>
-                    </div>
-
-                    <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">
-                      {subject.name}
-                    </h3>
-                    <p className="mt-1.5 line-clamp-3 flex-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                      {subject.short_description}
-                    </p>
-
-                    <div className="mt-4 flex flex-wrap gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
-                      <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">
-                        <Layers className="h-3 w-3 text-indigo-500" />
-                        {subject.module_count || 0} Modules
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">
-                        <FileText className="h-3 w-3 text-blue-500" />
-                        {subject.resource_count || 0} Resources
-                      </span>
-                      {(subject.question_count || 0) > 0 && (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">
-                          <HelpCircle className="h-3 w-3 text-amber-500" />
-                          {subject.question_count} Questions
-                        </span>
-                      )}
-                      {(subject.program_count || 0) > 0 && (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">
-                          <FileCode2 className="h-3 w-3 text-emerald-500" />
-                          {subject.program_count} Programs
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3.5 dark:border-slate-800">
-                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {subject.credits} Credits • {subject.course_type}
-                      </span>
-                      <Link to={`/subjects/${subject.code}`}>
-                        <Button size="sm" variant={hasFullResources ? 'primary' : 'outline'}>
-                          View Subject
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </div>
-  );
+  return <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
+    <section className="relative overflow-hidden rounded-[2rem] border border-indigo-100 bg-gradient-to-br from-white via-indigo-50 to-sky-100 px-6 py-14 text-center dark:border-slate-800 dark:from-slate-900 dark:via-indigo-950/50 dark:to-slate-900 sm:px-12 sm:py-20">
+      <div className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
+      <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/80 px-4 py-2 text-xs font-semibold text-indigo-700 dark:border-indigo-900 dark:bg-slate-900/80 dark:text-indigo-300"><GraduationCap className="h-4 w-4"/>Built for KTU B.Tech students</span>
+      <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-slate-950 dark:text-white sm:text-6xl">KTU STUDY HUB</h1>
+      <p className="mt-3 text-lg font-semibold text-indigo-700 dark:text-indigo-300 sm:text-xl">Everything for your semester, in one place.</p>
+      <p className="mx-auto mt-5 max-w-3xl text-sm leading-7 text-slate-600 dark:text-slate-300 sm:text-base">Your academic resource hub for KTU B.Tech students. Explore notes, previous year question papers, question banks, revision materials and other study resources organized by branch and semester.</p>
+      <Button className="mt-8" size="lg" onClick={() => document.getElementById('browse')?.scrollIntoView({behavior:'smooth'})}>Explore Your Semester <ArrowRight className="h-4 w-4"/></Button>
+      <div className="mx-auto mt-12 grid max-w-2xl grid-cols-3 gap-3 text-left sm:gap-4">
+        {[['8','Semesters'],[String(hierarchy?.branches.length ?? '—'),'Branches'],['1','Live academic section']].map(([value,label])=><div key={label} className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/70"><div className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">{value}</div><div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{label}</div></div>)}
+      </div>
+    </section>
+    <section id="browse" className="scroll-mt-24 py-16 sm:py-20">
+      <div className="mx-auto max-w-2xl text-center"><span className="text-xs font-bold uppercase tracking-[.18em] text-indigo-600 dark:text-indigo-400">Start exploring</span><h2 className="mt-3 text-2xl font-bold sm:text-3xl">Choose Your Branch &amp; Semester</h2><p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Browse available materials or see what is coming next.</p></div>
+      <div className="mx-auto mt-8 grid max-w-3xl gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:p-7">
+        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Branch<select value={branchId} onChange={e=>setBranchId(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-950">{hierarchy?.branches.map(b=><option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Semester<select value={semesterId} onChange={e=>setSemesterId(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-950">{hierarchy?.semesters.filter(s=>s.number>=1&&s.number<=8).map(s=><option key={s.id} value={s.id}>Semester {s.number} ({s.code})</option>)}</select></label>
+        <Button className="h-12" onClick={explore} disabled={!branchId||!semesterId}>Open Section <ArrowRight className="h-4 w-4"/></Button>
+      </div>
+      <div className="mx-auto mt-5 grid max-w-3xl grid-cols-4 gap-2 sm:grid-cols-8">{hierarchy?.semesters.filter(s=>s.number>=1&&s.number<=8).map(s=><button key={s.id} onClick={()=>setSemesterId(String(s.id))} className={`rounded-xl border px-2 py-3 text-xs font-bold transition ${semesterId===String(s.id)?'border-indigo-600 bg-indigo-600 text-white':'border-slate-200 bg-white hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900'}`}>{s.code}</button>)}</div>
+    </section>
+    <section className="grid items-center gap-8 rounded-3xl bg-slate-900 p-7 text-white dark:bg-slate-900 sm:grid-cols-2 sm:p-12"><div><span className="text-xs font-bold uppercase tracking-widest text-indigo-300">About the platform</span><h2 className="mt-3 text-2xl font-bold sm:text-3xl">A clearer way to find what you need.</h2></div><p className="text-sm leading-7 text-slate-300">KTU Study Hub is a student-focused academic resource platform designed to make studying easier for B.Tech students under APJ Abdul Kalam Technological University. The platform organizes academic materials by branch, semester, subject and module, helping students find useful resources in one place. Our goal is to make quality study materials more accessible to students.</p></section>
+    <section className="py-16 sm:py-20"><div className="text-center"><h2 className="text-2xl font-bold sm:text-3xl">Study tools, organized around you</h2><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Features appear as verified materials become available.</p></div><div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{features.map(([title,desc],i)=><Card key={title}><CardContent className="flex gap-3 p-5"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">{[<BookOpen/>,<FileText/>,<Layers3/>,<Sparkles/>,<Search/>,<Share2/>][i]}</div><div><h3 className="text-sm font-bold">{title}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{desc}</p></div></CardContent></Card>)}</div></section>
+    <section className="rounded-3xl border border-indigo-200 bg-indigo-50 p-7 dark:border-indigo-900 dark:bg-indigo-950/40 sm:flex sm:items-center sm:justify-between sm:p-10"><div><h2 className="text-xl font-bold">Help Build the KTU Study Hub</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Have useful notes, question papers or study materials? Share them with the KTU student community. Every submission is reviewed before it becomes publicly available.</p></div><Link to="/submit-resource" className="mt-5 inline-flex shrink-0 items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 sm:ml-6 sm:mt-0"><UploadCloud className="h-4 w-4"/>Submit a Resource</Link></section>
+    <p className="mx-auto mt-10 max-w-3xl text-center text-[11px] leading-5 text-slate-400">KTU Study Hub is an independent student-oriented academic resource platform and is not an official website of APJ Abdul Kalam Technological University.</p>
+  </div>;
 }

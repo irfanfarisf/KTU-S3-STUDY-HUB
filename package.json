@@ -1,7 +1,7 @@
 {
   "name": "s3-study-hub",
   "version": "1.0.0",
-  "description": "KTU S3 Study Hub — Complete Academic Resource Platform for APJ Abdul Kalam Technological University (2024 Scheme)",
+  "description": "KTU Study Hub — Academic resources for KTU B.Tech students",
   "main": "server/index.ts",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

@@ -1,14 +1,14 @@
-# KTU S3 Study Hub
+# KTU Study Hub
 
 A React and TypeScript study portal backed directly by Supabase Postgres, Auth, and Storage. The browser uses the Supabase anon/publishable key; Row Level Security controls published study content, admin editing, and private student records. The deployed frontend does not call the legacy Express/SQLite API.
 
-Students can browse published content without an account. Signing in lets them sync bookmarks, completed topics, and practiced questions across devices. Existing browser-local progress is merged into the first signed-in account on that device.
+Students can browse published content without an account. Signing in lets them sync bookmarks, completed topics, and practiced questions across devices. Existing browser-local progress is merged into the first signed-in account on that device. Community submissions stay private until an administrator verifies and publishes them.
 
 ## Configure Supabase
 
 The local `.env.local` already contains `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The configured project is reachable, but its `public.universities` table was not installed when checked. Install the schema before running the app:
 
-1. In the Supabase SQL Editor, run `supabase/migrations/001_initial_schema.sql`, then `supabase/migrations/002_student_accounts_and_import.sql`, and then `supabase/migrations/003_resource_uploads_and_syllabi.sql`.
+1. In the Supabase SQL Editor, apply migrations `001_initial_schema.sql` through `004_community_submissions_notifications.sql` in order. Migration 004 adds community submissions, private pending-file storage, admin notifications, branch/semester options, and the admin-only approval function. It does not reset existing academic content.
 2. Enable email/password sign-up in Supabase Auth. Set the project's Site URL to the app origin and add `http://localhost:5173/**` plus the deployed site's `https://<your-render-site>/**` to the redirect URL allowlist. Email confirmation can remain enabled; the account page explains the confirmation step.
 3. Create the administrator in **Authentication → Users** and confirm its email. Then add that Auth user's UUID to `public.admins` in SQL Editor:
 
@@ -29,10 +29,14 @@ Never put a Supabase service-role or secret key in a `VITE_` variable or in the 
 
 The existing SQLite database contains seeded subjects, modules, questions, notes, and revision items. The one-time importer preserves row IDs, uploads local resource files to the `study-resources` bucket, and advances Postgres sequences. It does not copy the local admin password.
 
-1. Apply both SQL migrations and create the Supabase admin first.
+1. Apply migrations 001–004 and create the Supabase admin first.
 2. Put the Supabase **service-role/secret key** in the ignored `.env.local` as `SUPABASE_SERVICE_ROLE_KEY` (or set it only in the current shell). This key is read by the one-time import script and is never read by the frontend.
 3. Run `npm run migrate:sqlite-to-supabase`. The script reads `data/studyhub.db` and `storage/uploads` by default. Override `SQLITE_DB_PATH`, `APP_DATA_DIR`, or `UPLOADS_DIR` if needed.
 4. Remove the service-role key from `.env.local` after the import. It is not required at runtime.
+
+Community submissions and persistent admin notifications are installed by migration 004. The pending upload bucket is private; only admins can read pending files. Successful submission inserts create notifications through a database trigger, and Supabase Realtime publishes notification inserts to authenticated admins. Email notifications are not configured in this repository; configure a server-side Supabase Edge Function and email provider before enabling email delivery. Do not add email secrets to `VITE_` variables.
+
+The public form uses Supabase's anon key and RLS, with a 25 MB bucket limit and an allowlist of document/image MIME types. For production abuse protection and inspection of actual file signatures, put a rate-limited server-side/Edge Function in front of public submissions; direct anon uploads are not rate limited by the current static frontend architecture.
 
 The import uses upserts keyed by existing row IDs, so it can be rerun after fixing an interrupted import. Check the reported missing uploads; those resource rows will be imported without a file link.
 
