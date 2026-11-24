@@ -603,7 +603,14 @@ export function SubjectDetailPage() {
                           onClick={async () => {
                             try {
                               const url = await api.resourceFileUrl(res, true);
-                              if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                              if (!url) throw new Error('This resource file is unavailable.');
+                              const link = document.createElement('a');
+                              link.href = url;
+                              link.download = res.file_name || 'resource';
+                              link.rel = 'noreferrer';
+                              document.body.appendChild(link);
+                              link.click();
+                              link.remove();
                             } catch (err) {
                               console.error(err);
                             }

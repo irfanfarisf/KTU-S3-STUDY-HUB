@@ -371,7 +371,20 @@ export const api = {
     modules.forEach((r) => add('module', r, `Module ${r.module_number}: ${r.title}`, r.description || r.syllabus_text || '', `/subjects/${r.subject?.code}/module/${r.module_number}`));
     topics.forEach((r) => add('topic', r, r.title, r.summary || '', r.module?.module_number ? `/subjects/${r.subject?.code}/module/${r.module.module_number}` : `/subjects/${r.subject?.code}`));
     if (!['question', 'program', 'revision'].includes(params.resourceType || '')) {
-      resources.forEach((r) => add('resource', r, r.title, r.description || r.content_markdown || '', r.resource_type === 'pyq' || r.resource_type === 'model_paper' || r.resource_type === 'solved_paper' ? `/pyqs?subject=${r.subject?.id}` : `/notes?subject=${r.subject?.id}`, r.resource_type, r.importance, r.exam_year));
+      resources.forEach((r) => add(
+        'resource',
+        r,
+        r.title,
+        r.description || r.content_markdown || '',
+        r.category === 'Question Banks'
+          ? `/question-bank?subject=${r.subject?.code ?? r.subject?.id}`
+          : r.resource_type === 'pyq' || r.resource_type === 'model_paper' || r.resource_type === 'solved_paper'
+            ? `/pyqs?subject=${r.subject?.id}`
+            : `/notes?subject=${r.subject?.id}`,
+        r.resource_type,
+        r.importance,
+        r.exam_year
+      ));
     }
     if (!params.resourceType || params.resourceType === 'question') {
       questions.forEach((r) => add('question', r, r.question_text, r.answers?.[0]?.short_answer || `Question type: ${r.question_type}`, r.module?.module_number ? `/subjects/${r.subject?.code}/module/${r.module.module_number}#questions` : `/question-bank?subject=${r.subject?.code}`, 'question', r.importance, r.exam_year));

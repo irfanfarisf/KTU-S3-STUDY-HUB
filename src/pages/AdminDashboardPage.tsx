@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   BookOpen,
   Bell,
   Check,
+  Download,
   Eye,
   EyeOff,
   FileCode2,
@@ -11,6 +13,7 @@ import {
   Layers,
   LogOut,
   Plus,
+  Save,
   Search,
   ShieldCheck,
   Trash2,
@@ -26,6 +29,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
+import { PdfViewerModal } from '@/components/study/PdfViewerModal';
 import { RESOURCE_TYPE_LABELS } from '@/lib/utils';
 import { getSupabase } from '@/lib/supabase';
 
@@ -57,12 +61,17 @@ export function AdminDashboardPage() {
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
+  const [submissionBranches, setSubmissionBranches] = useState<Record<string, string>>({});
+  const [submissionSemesters, setSubmissionSemesters] = useState<Record<string, string>>({});
   const [submissionSubjects, setSubmissionSubjects] = useState<Record<string, string>>({});
   const [submissionEdits, setSubmissionEdits] = useState<Record<string, SubmissionEdit>>({});
   const [submissionModuleIds, setSubmissionModuleIds] = useState<Record<string, string>>({});
   const [submissionTopicIds, setSubmissionTopicIds] = useState<Record<string, string>>({});
   const [submissionModuleOptions, setSubmissionModuleOptions] = useState<Array<{ id: number; subject_id: number; module_number: number; title: string }>>([]);
   const [submissionTopicOptions, setSubmissionTopicOptions] = useState<Array<{ id: number; subject_id: number; module_id: number; title: string }>>([]);
+  const [publishedResourcesForDupCheck, setPublishedResourcesForDupCheck] = useState<Array<{ id: number; subject_id: number; module_id: number | null; title: string; file_name: string | null; file_size_bytes: number | null; category: string | null }>>([]);
+  const [busySubmissionId, setBusySubmissionId] = useState<string | null>(null);
+  const [submissionPreview, setSubmissionPreview] = useState<{ title: string; fileUrl: string; downloadUrl: string; fileName: string; fileSizeBytes: number; mimeType: string } | null>(null);
   const [submissionNotes, setSubmissionNotes] = useState<Record<string, string>>({});
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState('all');
@@ -151,15 +160,17 @@ export function AdminDashboardPage() {
     const { data, error } = await getSupabase().from('community_submissions').select('*, branch:branches(id,name,code), semester:semesters(id,number,code), subject:subjects(id,code,name), notification:admin_notifications(id,read_at)').order('created_at', { ascending: false });
     if (error) return;
     const ids = (data || []).map((item: any) => item.published_resource_id).filter(Boolean);
-    const [publishedResult, moduleResult, topicResult] = await Promise.all([
+    const [publishedResult, moduleResult, topicResult, existingResourcesResult] = await Promise.all([
       ids.length ? getSupabase().from('resources').select('id,subject_id,module_id,topic_id,file_path').in('id', ids) : Promise.resolve({ data: [], error: null } as any),
       getSupabase().from('modules').select('id,subject_id,module_number,title').eq('is_published', true),
       getSupabase().from('topics').select('id,subject_id,module_id,title').eq('is_published', true),
+      getSupabase().from('resources').select('id,subject_id,module_id,title,file_name,file_size_bytes,category').eq('is_published', true),
     ]);
     const resourcesById = new Map((publishedResult.data || []).map((resource: any) => [resource.id, resource]));
     setSubmissions((data || []).map((item: any) => ({ ...item, published_resource: resourcesById.get(item.published_resource_id) || null })));
     if (!moduleResult.error) setSubmissionModuleOptions(moduleResult.data || []);
     if (!topicResult.error) setSubmissionTopicOptions(topicResult.data || []);
+    if (!existingResourcesResult.error) setPublishedResourcesForDupCheck(existingResourcesResult.data || []);
   }, []);
   useEffect(() => {
     if (!adminUser) return;
@@ -587,43 +598,480 @@ export function AdminDashboardPage() {
 
       {tab === 'submissions' && (
         <section className="mt-5 space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold">Community Submissions</h2><p className="mt-1 text-xs text-slate-500">Review student contributions. Pending files remain private until you publish them.</p></div><div className="flex flex-wrap gap-2"><Input value={cmsSearch} onChange={(e) => setCmsSearch(e.target.value)} placeholder="Search submissions..." className="w-56"/><Select value={submissionStatusFilter} onChange={(e) => setSubmissionStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="pending">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></Select><Select value={submissionBranchFilter} onChange={e=>setSubmissionBranchFilter(e.target.value)}><option value="all">All branches</option>{hierarchy?.branches.map(b=><option key={b.id} value={b.id}>{b.code}</option>)}</Select><Select value={submissionSemesterFilter} onChange={e=>setSubmissionSemesterFilter(e.target.value)}><option value="all">All semesters</option>{hierarchy?.semesters.map(s=><option key={s.id} value={s.id}>{s.code}</option>)}</Select><Select value={submissionCategoryFilter} onChange={e=>setSubmissionCategoryFilter(e.target.value)}><option value="all">All categories</option>{['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map(c=><option key={c}>{c}</option>)}</Select><Input type="date" aria-label="Submission date" value={submissionDateFilter} onChange={e=>setSubmissionDateFilter(e.target.value)} className="w-40"/></div></div>
-          {submissions.filter((item) => (submissionStatusFilter === 'all' || item.status === submissionStatusFilter) && (submissionBranchFilter==='all'||String(item.branch_id)===submissionBranchFilter) && (submissionSemesterFilter==='all'||String(item.semester_id)===submissionSemesterFilter) && (submissionCategoryFilter==='all'||item.category===submissionCategoryFilter) && (!submissionDateFilter||item.created_at.slice(0,10)===submissionDateFilter) && `${item.title} ${item.branch?.code} ${item.subject_name} ${item.subject_code} ${item.category}`.toLowerCase().includes(cmsSearch.toLowerCase())).map((item) => {
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Community Submissions</h2>
+              <p className="mt-1 text-xs text-slate-500">Review student contributions. Pending files remain private until you publish them.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Input value={cmsSearch} onChange={(e) => setCmsSearch(e.target.value)} placeholder="Search submissions..." className="w-56" />
+              <Select value={submissionStatusFilter} onChange={(e) => setSubmissionStatusFilter(e.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="pending">Pending Review</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </Select>
+              <Select value={submissionBranchFilter} onChange={(e) => setSubmissionBranchFilter(e.target.value)}>
+                <option value="all">All branches</option>
+                {hierarchy?.branches.map((b) => <option key={b.id} value={b.id}>{b.code}</option>)}
+              </Select>
+              <Select value={submissionSemesterFilter} onChange={(e) => setSubmissionSemesterFilter(e.target.value)}>
+                <option value="all">All semesters</option>
+                {hierarchy?.semesters.map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}
+              </Select>
+              <Select value={submissionCategoryFilter} onChange={(e) => setSubmissionCategoryFilter(e.target.value)}>
+                <option value="all">All categories</option>
+                {COMMUNITY_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              </Select>
+              <Input type="date" aria-label="Submission date" value={submissionDateFilter} onChange={(e) => setSubmissionDateFilter(e.target.value)} className="w-40" />
+            </div>
+          </div>
+
+          {submissions.filter((item) => (submissionStatusFilter === 'all' || item.status === submissionStatusFilter) && (submissionBranchFilter === 'all' || String(item.branch_id) === submissionBranchFilter) && (submissionSemesterFilter === 'all' || String(item.semester_id) === submissionSemesterFilter) && (submissionCategoryFilter === 'all' || item.category === submissionCategoryFilter) && (!submissionDateFilter || item.created_at.slice(0, 10) === submissionDateFilter) && `${item.title} ${item.branch?.code} ${item.subject_name} ${item.subject_code} ${item.category}`.toLowerCase().includes(cmsSearch.toLowerCase())).map((item) => {
             const edit: SubmissionEdit = submissionEdits[item.id] || { title: item.title, description: item.description || '', category: item.category, source_info: item.source_info || '' };
-            const destinationSubjectId = Number(submissionSubjects[item.id] || item.published_resource?.subject_id || item.subject_id || 0);
-            const destinationModuleId = Number(Object.prototype.hasOwnProperty.call(submissionModuleIds, item.id) ? submissionModuleIds[item.id] : item.published_resource?.module_id || 0);
-            const destinationTopicId = Number(Object.prototype.hasOwnProperty.call(submissionTopicIds, item.id) ? submissionTopicIds[item.id] : item.published_resource?.topic_id || 0);
+            const destinationSubjectId = Number(
+              Object.prototype.hasOwnProperty.call(submissionSubjects, item.id)
+                ? submissionSubjects[item.id]
+                : (item.published_resource?.subject_id || item.subject_id || 0)
+            );
+            const selectedDestSubject = subjects.find((s) => s.id === destinationSubjectId);
+            const destinationBranchId = Number(
+              Object.prototype.hasOwnProperty.call(submissionBranches, item.id)
+                ? submissionBranches[item.id]
+                : (selectedDestSubject?.branch_id || item.branch_id || 0)
+            );
+            const destinationSemesterId = Number(
+              Object.prototype.hasOwnProperty.call(submissionSemesters, item.id)
+                ? submissionSemesters[item.id]
+                : (selectedDestSubject?.semester_id || item.semester_id || 0)
+            );
+            const scopedSubjects = subjects.filter(
+              (subject) =>
+                subject.is_published &&
+                (!destinationBranchId || subject.branch_id === destinationBranchId) &&
+                (!destinationSemesterId || subject.semester_id === destinationSemesterId)
+            );
             const destinationModules = submissionModuleOptions.filter((module) => module.subject_id === destinationSubjectId);
+            const inferredModuleId = !Object.prototype.hasOwnProperty.call(submissionModuleIds, item.id) && !item.published_resource?.module_id && item.module_label
+              ? (destinationModules.find((m) => `Module ${m.module_number}: ${m.title}`.toLowerCase() === String(item.module_label).trim().toLowerCase() || `module ${m.module_number}` === String(item.module_label).trim().toLowerCase())?.id || 0)
+              : 0;
+            const destinationModuleId = Number(
+              Object.prototype.hasOwnProperty.call(submissionModuleIds, item.id)
+                ? submissionModuleIds[item.id]
+                : (item.published_resource?.module_id || inferredModuleId || 0)
+            );
             const destinationTopics = destinationModuleId ? submissionTopicOptions.filter((topic) => topic.subject_id === destinationSubjectId && topic.module_id === destinationModuleId) : [];
-            const saveMetadata = async () => {
-              const args = { p_submission_id: item.id, p_subject_id: destinationSubjectId, p_module_id: destinationModuleId || null, p_topic_id: destinationTopicId || null, p_title: edit.title, p_description: edit.description, p_category: edit.category, p_source_info: edit.source_info };
-              const { error } = await getSupabase().rpc('edit_approved_community_submission', args);
-              if (error) notify('err', error.message);
-              else { await loadSubmissions(); await loadSubjects(); await loadSubjectScopedData(destinationSubjectId); notify('ok', 'Published resource details and destination updated.'); }
+            const inferredTopicId = !Object.prototype.hasOwnProperty.call(submissionTopicIds, item.id) && !item.published_resource?.topic_id && item.topic_label
+              ? (destinationTopics.find((t) => t.title.toLowerCase() === String(item.topic_label).trim().toLowerCase())?.id || 0)
+              : 0;
+            const destinationTopicId = Number(
+              Object.prototype.hasOwnProperty.call(submissionTopicIds, item.id)
+                ? submissionTopicIds[item.id]
+                : (item.published_resource?.topic_id || inferredTopicId || 0)
+            );
+
+            const normTitle = edit.title.trim().toLowerCase();
+            const normFile = String(item.original_file_name || '').trim().toLowerCase();
+            const likelyDuplicates = item.status === 'pending' && destinationSubjectId
+              ? publishedResourcesForDupCheck.filter((existing) =>
+                  existing.subject_id === destinationSubjectId && (
+                    (normTitle && existing.title.trim().toLowerCase() === normTitle) ||
+                    (normFile && existing.file_name && existing.file_name.trim().toLowerCase() === normFile)
+                  )
+                )
+              : [];
+            const isBusy = busySubmissionId === item.id;
+
+            const getFileLocation = () => {
+              const usePublished = item.status === 'approved' && Boolean(item.published_resource?.file_path);
+              return {
+                bucket: usePublished ? 'study-resources' : 'pending-submissions',
+                targetPath: usePublished ? item.published_resource.file_path : item.file_path,
+              };
             };
-            return <Card id={`submission-${item.id}`} key={item.id} className={selectedSubmissionId===item.id?'ring-2 ring-indigo-500':''}>
-              <CardContent className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{item.title}</h3><Badge variant={item.status === 'approved' ? 'emerald' : item.status === 'pending' ? 'amber' : 'outline'}>{item.status === 'pending' ? 'Pending Review' : item.status}</Badge></div><p className="mt-1 text-xs text-slate-500">{item.branch?.code} · {item.semester?.code} · {item.subject?.code || item.subject_code || item.subject_name || 'Subject to verify'} · {item.category}</p><p className="mt-1 text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString()} · {item.original_file_name} · {(item.file_size_bytes/1048576).toFixed(2)} MB</p></div>
-                  <Button size="sm" variant="outline" onClick={async () => { try { const usePublished = item.status === 'approved' && Boolean(item.published_resource?.file_path); const bucket = usePublished ? 'study-resources' : 'pending-submissions'; const targetPath = usePublished ? item.published_resource.file_path : item.file_path; const { data, error } = await getSupabase().storage.from(bucket).createSignedUrl(targetPath, 120); if (error) throw error; window.open(data.signedUrl, '_blank', 'noopener,noreferrer'); } catch (err) { notify('err', (err as Error).message); } }}>Preview / Download</Button>
-                </div>
-                {(item.contributor_name || item.contributor_email || item.internal_review_notes || item.rejection_reason) && <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-950 sm:grid-cols-2"><div>{item.contributor_name && <p>Contributor: {item.contributor_name}</p>}{item.contributor_email && <p>Email: {item.contributor_email}</p>}{item.module_label && <p>Submitted module: {item.module_label}</p>}{item.topic_label && <p>Submitted topic: {item.topic_label}</p>}</div><div>{item.internal_review_notes && <p>Internal notes: {item.internal_review_notes}</p>}{item.rejection_reason && <p>Rejection reason: {item.rejection_reason}</p>}</div></div>}
-                {(item.status === 'pending' || item.status === 'approved') && <div className="mt-4 space-y-3 rounded-xl border border-indigo-100 p-4 dark:border-indigo-900">
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Edit details and choose destination</p>
-                  <div className="grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold text-slate-600">Resource title<Input value={edit.title} onChange={e=>setSubmissionEdits((prev)=>({...prev,[item.id]:{...edit,title:e.target.value}}))}/></label><label className="text-[11px] font-semibold text-slate-600">Category<Select value={edit.category} onChange={e=>setSubmissionEdits((prev)=>({...prev,[item.id]:{...edit,category:e.target.value}}))}>{COMMUNITY_CATEGORIES.map(category=><option key={category}>{category}</option>)}</Select></label></div>
-                  <label className="block text-[11px] font-semibold text-slate-600">Description<Textarea rows={2} value={edit.description} onChange={e=>setSubmissionEdits((prev)=>({...prev,[item.id]:{...edit,description:e.target.value}}))}/></label>
-                  <div className="grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold text-slate-600">Source information<Input value={edit.source_info} onChange={e=>setSubmissionEdits((prev)=>({...prev,[item.id]:{...edit,source_info:e.target.value}}))}/></label><label className="text-[11px] font-semibold text-slate-600">Destination subject<Select value={String(destinationSubjectId || '')} onChange={e=>{setSubmissionSubjects((prev)=>({...prev,[item.id]:e.target.value}));setSubmissionModuleIds((prev)=>({...prev,[item.id]:''}));setSubmissionTopicIds((prev)=>({...prev,[item.id]:''}));}}><option value="">Choose a subject…</option>{subjects.filter(subject=>subject.is_published).map(subject=><option key={subject.id} value={subject.id}>{subject.code} — {subject.name} ({subject.branch_code} · {subject.semester_code})</option>)}</Select></label></div>
-                  <div className="grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold text-slate-600">Destination module (optional)<Select value={String(destinationModuleId || '')} onChange={e=>{setSubmissionModuleIds((prev)=>({...prev,[item.id]:e.target.value}));setSubmissionTopicIds((prev)=>({...prev,[item.id]:''}));}}><option value="">Subject-wide</option>{destinationModules.map(module=><option key={module.id} value={module.id}>Module {module.module_number}: {module.title}</option>)}</Select></label><label className="text-[11px] font-semibold text-slate-600">Destination topic (optional)<Select disabled={!destinationModuleId} value={String(destinationTopicId || '')} onChange={e=>setSubmissionTopicIds((prev)=>({...prev,[item.id]:e.target.value}))}><option value="">No specific topic</option>{destinationTopics.map(topic=><option key={topic.id} value={topic.id}>{topic.title}</option>)}</Select></label></div>
-                </div>}
-                {(item.description || item.source_info) && <div className="mt-3 text-xs text-slate-500">Submitted description: {item.description}{item.source_info && <span> · Source: {item.source_info}</span>}</div>}
-                {item.status === 'pending' && <div className="mt-3 flex flex-wrap items-end gap-2"><label className="min-w-64 flex-1 text-[11px] font-semibold text-slate-600">Internal review notes<textarea rows={2} value={submissionNotes[item.id] ?? item.internal_review_notes ?? ''} onChange={e=>setSubmissionNotes((prev)=>({...prev,[item.id]:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"/></label><Button size="sm" variant="outline" onClick={async()=>{const nextNotes=(submissionNotes[item.id]??item.internal_review_notes??'').trim()||null;const {error}=await getSupabase().from('community_submissions').update({internal_review_notes:nextNotes}).eq('id',item.id).eq('status','pending');if(error)notify('err',error.message);else{await loadSubmissions();notify('ok','Internal review notes saved.')}}}>Save notes</Button></div>}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {item.status === 'pending' && <Button size="sm" disabled={!destinationSubjectId || !edit.title.trim()} onClick={async () => { let copiedPath=''; try { const { data: file, error: downloadError } = await getSupabase().storage.from('pending-submissions').download(item.file_path); if (downloadError || !file) throw downloadError || new Error('Could not read pending file.'); copiedPath=`community/${item.id}/${crypto.randomUUID()}-${item.original_file_name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(-100)}`; const { error: uploadError }=await getSupabase().storage.from('study-resources').upload(copiedPath,file,{contentType:item.mime_type,upsert:false}); if(uploadError)throw uploadError; const {error:approveError}=await getSupabase().rpc('approve_community_submission',{p_submission_id:item.id,p_subject_id:destinationSubjectId,p_module_id:destinationModuleId||null,p_topic_id:destinationTopicId||null,p_published_file_path:copiedPath,p_title:edit.title,p_description:edit.description,p_category:edit.category,p_source_info:edit.source_info}); if(approveError)throw approveError; await loadSubmissions(); await loadNotifications(); await loadSubjects(); if (selectedSubjectId === destinationSubjectId) await loadSubjectScopedData(selectedSubjectId); notify('ok','Resource approved and added to the selected subject/module. Existing resources were kept.'); } catch(err) { if(copiedPath) await getSupabase().storage.from('study-resources').remove([copiedPath]); notify('err',(err as Error).message); } }}><Check className="h-3.5 w-3.5"/>Approve &amp; Publish</Button>}
-                  {item.status === 'approved' && <Button size="sm" disabled={!destinationSubjectId || !edit.title.trim()} onClick={()=>void saveMetadata()}>Save resource details</Button>}
-                  {item.status === 'pending' && <><Button size="sm" variant="outline" onClick={async()=>{const reason=window.prompt('Optional rejection reason:')||null;const {error}=await getSupabase().from('community_submissions').update({status:'rejected',reviewed_by:(await api.currentUser())?.id,reviewed_at:new Date().toISOString(),rejection_reason:reason}).eq('id',item.id).eq('status','pending');if(error)notify('err',error.message);else{await loadSubmissions();notify('ok','Submission rejected and kept private.')}}}>Reject</Button><Button size="sm" variant="danger" onClick={async()=>{if(!window.confirm('Delete this submission and its pending file?'))return;const {error}=await getSupabase().from('community_submissions').delete().eq('id',item.id);if(error){notify('err',error.message);return}await getSupabase().storage.from('pending-submissions').remove([item.file_path]);await loadSubmissions();await loadNotifications();}}>Delete</Button></>}
-                </div>
-              </CardContent>
-            </Card>;
+
+            const openSubmissionPreview = async () => {
+              try {
+                const { bucket, targetPath } = getFileLocation();
+                if (!targetPath) throw new Error('Submission file path is missing.');
+                const storage = getSupabase().storage.from(bucket);
+                const [viewRes, dlRes] = await Promise.all([
+                  storage.createSignedUrl(targetPath, 300),
+                  storage.createSignedUrl(targetPath, 300, { download: item.original_file_name || true }),
+                ]);
+                if (viewRes.error) throw viewRes.error;
+                if (dlRes.error) throw dlRes.error;
+                setSubmissionPreview({
+                  title: edit.title || item.title,
+                  fileUrl: viewRes.data.signedUrl,
+                  downloadUrl: dlRes.data.signedUrl,
+                  fileName: item.original_file_name,
+                  fileSizeBytes: item.file_size_bytes,
+                  mimeType: item.mime_type,
+                });
+              } catch (err) {
+                notify('err', (err as Error).message || 'Could not open preview for this file.');
+              }
+            };
+
+            const downloadSubmissionFile = async () => {
+              try {
+                const { bucket, targetPath } = getFileLocation();
+                if (!targetPath) throw new Error('Submission file path is missing.');
+                const { data, error } = await getSupabase().storage.from(bucket).createSignedUrl(targetPath, 300, { download: item.original_file_name || true });
+                if (error) throw error;
+                const link = document.createElement('a');
+                link.href = data.signedUrl;
+                link.download = item.original_file_name || 'resource';
+                link.rel = 'noreferrer';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+              } catch (err) {
+                notify('err', (err as Error).message || 'Could not download this file.');
+              }
+            };
+
+            const savePendingDraft = async () => {
+              if (!edit.title.trim()) { notify('err', 'Resource title is required.'); return; }
+              setBusySubmissionId(item.id);
+              try {
+                const chosenSubject = subjects.find((s) => s.id === destinationSubjectId) || null;
+                const chosenModule = destinationModules.find((m) => m.id === destinationModuleId) || null;
+                const chosenTopic = destinationTopics.find((t) => t.id === destinationTopicId) || null;
+                const { error } = await getSupabase()
+                  .from('community_submissions')
+                  .update({
+                    branch_id: chosenSubject?.branch_id || destinationBranchId || item.branch_id,
+                    semester_id: chosenSubject?.semester_id || destinationSemesterId || item.semester_id,
+                    subject_id: chosenSubject?.id ?? null,
+                    subject_name: chosenSubject?.name ?? item.subject_name,
+                    subject_code: chosenSubject?.code ?? item.subject_code,
+                    module_label: chosenModule ? `Module ${chosenModule.module_number}: ${chosenModule.title}` : (destinationModuleId === 0 && Object.prototype.hasOwnProperty.call(submissionModuleIds, item.id) ? null : item.module_label),
+                    topic_label: chosenTopic ? chosenTopic.title : (destinationTopicId === 0 && Object.prototype.hasOwnProperty.call(submissionTopicIds, item.id) ? null : item.topic_label),
+                    title: edit.title.trim(),
+                    description: edit.description,
+                    category: edit.category,
+                    source_info: edit.source_info.trim() || null,
+                  })
+                  .eq('id', item.id)
+                  .eq('status', 'pending');
+                if (error) throw error;
+                await loadSubmissions();
+                notify('ok', 'Pending submission details saved. Original file was preserved.');
+              } catch (err) {
+                notify('err', (err as Error).message);
+              } finally {
+                setBusySubmissionId(null);
+              }
+            };
+
+            const saveMetadata = async () => {
+              setBusySubmissionId(item.id);
+              try {
+                const args = { p_submission_id: item.id, p_subject_id: destinationSubjectId, p_module_id: destinationModuleId || null, p_topic_id: destinationTopicId || null, p_title: edit.title, p_description: edit.description, p_category: edit.category, p_source_info: edit.source_info };
+                const { error } = await getSupabase().rpc('edit_approved_community_submission', args);
+                if (error) throw error;
+                await loadSubmissions();
+                await loadSubjects();
+                await loadSubjectScopedData(destinationSubjectId);
+                notify('ok', 'Published resource details and destination updated.');
+              } catch (err) {
+                notify('err', (err as Error).message);
+              } finally {
+                setBusySubmissionId(null);
+              }
+            };
+
+            return (
+              <Card id={`submission-${item.id}`} key={item.id} className={selectedSubmissionId === item.id ? 'ring-2 ring-indigo-500' : ''}>
+                <CardContent className="p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-bold">{item.title}</h3>
+                        <Badge variant={item.status === 'approved' ? 'emerald' : item.status === 'pending' ? 'amber' : 'outline'}>
+                          {item.status === 'pending' ? 'Pending Review' : item.status}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.branch?.code} · {item.semester?.code} · {item.subject?.code || item.subject_code || item.subject_name || 'Subject to verify'} · {item.category}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        {new Date(item.created_at).toLocaleString()} · {item.original_file_name} · {(item.file_size_bytes / 1048576).toFixed(2)} MB
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void openSubmissionPreview()}>
+                        <Eye className="h-3.5 w-3.5" />
+                        Preview
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => void downloadSubmissionFile()}>
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </Button>
+                    </div>
+                  </div>
+
+                  {(item.contributor_name || item.contributor_email || item.internal_review_notes || item.rejection_reason) && (
+                    <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-950 sm:grid-cols-2">
+                      <div>
+                        {item.contributor_name && <p>Contributor: {item.contributor_name}</p>}
+                        {item.contributor_email && <p>Email: {item.contributor_email}</p>}
+                        {item.module_label && <p>Submitted module: {item.module_label}</p>}
+                        {item.topic_label && <p>Submitted topic: {item.topic_label}</p>}
+                      </div>
+                      <div>
+                        {item.internal_review_notes && <p>Internal notes: {item.internal_review_notes}</p>}
+                        {item.rejection_reason && <p>Rejection reason: {item.rejection_reason}</p>}
+                      </div>
+                    </div>
+                  )}
+
+                  {(item.status === 'pending' || item.status === 'approved') && (
+                    <div className="mt-4 space-y-3 rounded-xl border border-indigo-100 p-4 dark:border-indigo-900">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Edit details and choose destination</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Resource title
+                          <Input value={edit.title} onChange={(e) => setSubmissionEdits((prev) => ({ ...prev, [item.id]: { ...edit, title: e.target.value } }))} />
+                        </label>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Category
+                          <Select value={edit.category} onChange={(e) => setSubmissionEdits((prev) => ({ ...prev, [item.id]: { ...edit, category: e.target.value } }))}>
+                            {COMMUNITY_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
+                          </Select>
+                        </label>
+                      </div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        Description
+                        <Textarea rows={2} value={edit.description} onChange={(e) => setSubmissionEdits((prev) => ({ ...prev, [item.id]: { ...edit, description: e.target.value } }))} />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Destination branch
+                          <Select
+                            value={String(destinationBranchId || '')}
+                            onChange={(e) => {
+                              const nextBranch = Number(e.target.value);
+                              setSubmissionBranches((prev) => ({ ...prev, [item.id]: e.target.value }));
+                              if (selectedDestSubject && selectedDestSubject.branch_id !== nextBranch) {
+                                setSubmissionSubjects((prev) => ({ ...prev, [item.id]: '' }));
+                                setSubmissionModuleIds((prev) => ({ ...prev, [item.id]: '' }));
+                                setSubmissionTopicIds((prev) => ({ ...prev, [item.id]: '' }));
+                              }
+                            }}
+                          >
+                            <option value="">All branches</option>
+                            {hierarchy?.branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
+                          </Select>
+                        </label>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Destination semester
+                          <Select
+                            value={String(destinationSemesterId || '')}
+                            onChange={(e) => {
+                              const nextSem = Number(e.target.value);
+                              setSubmissionSemesters((prev) => ({ ...prev, [item.id]: e.target.value }));
+                              if (selectedDestSubject && selectedDestSubject.semester_id !== nextSem) {
+                                setSubmissionSubjects((prev) => ({ ...prev, [item.id]: '' }));
+                                setSubmissionModuleIds((prev) => ({ ...prev, [item.id]: '' }));
+                                setSubmissionTopicIds((prev) => ({ ...prev, [item.id]: '' }));
+                              }
+                            }}
+                          >
+                            <option value="">All semesters</option>
+                            {hierarchy?.semesters.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                          </Select>
+                        </label>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Destination subject
+                          <Select
+                            value={String(destinationSubjectId || '')}
+                            onChange={(e) => {
+                              const nextSub = subjects.find((s) => String(s.id) === e.target.value);
+                              setSubmissionSubjects((prev) => ({ ...prev, [item.id]: e.target.value }));
+                              if (nextSub) {
+                                setSubmissionBranches((prev) => ({ ...prev, [item.id]: String(nextSub.branch_id) }));
+                                setSubmissionSemesters((prev) => ({ ...prev, [item.id]: String(nextSub.semester_id) }));
+                              }
+                              setSubmissionModuleIds((prev) => ({ ...prev, [item.id]: '' }));
+                              setSubmissionTopicIds((prev) => ({ ...prev, [item.id]: '' }));
+                            }}
+                          >
+                            <option value="">{scopedSubjects.length ? 'Choose a subject…' : 'No published subjects in selected branch/semester'}</option>
+                            {scopedSubjects.map((subject) => (
+                              <option key={subject.id} value={subject.id}>
+                                {subject.code} — {subject.name} ({subject.branch_code} · {subject.semester_code})
+                              </option>
+                            ))}
+                          </Select>
+                        </label>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Source information
+                          <Input value={edit.source_info} onChange={(e) => setSubmissionEdits((prev) => ({ ...prev, [item.id]: { ...edit, source_info: e.target.value } }))} />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Destination module (optional)
+                          <Select value={String(destinationModuleId || '')} onChange={(e) => { setSubmissionModuleIds((prev) => ({ ...prev, [item.id]: e.target.value })); setSubmissionTopicIds((prev) => ({ ...prev, [item.id]: '' })); }}>
+                            <option value="">Subject-wide</option>
+                            {destinationModules.map((module) => <option key={module.id} value={module.id}>Module {module.module_number}: {module.title}</option>)}
+                          </Select>
+                        </label>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          Destination topic (optional)
+                          <Select disabled={!destinationModuleId} value={String(destinationTopicId || '')} onChange={(e) => setSubmissionTopicIds((prev) => ({ ...prev, [item.id]: e.target.value }))}>
+                            <option value="">No specific topic</option>
+                            {destinationTopics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
+                          </Select>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {likelyDuplicates.length > 0 && (
+                    <div role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div>
+                        <p className="font-semibold">Possible duplicate detected in this subject ({likelyDuplicates.length} matching resource{likelyDuplicates.length === 1 ? '' : 's'}):</p>
+                        <ul className="mt-1 list-disc pl-4">
+                          {likelyDuplicates.slice(0, 3).map((dup) => (
+                            <li key={dup.id}>{dup.title}{dup.file_name ? ` (${dup.file_name})` : ''}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-1 text-[11px] opacity-90">Approving will add this as a separate resource with a unique file path — existing files will not be overwritten.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {(item.description || item.source_info) && (
+                    <div className="mt-3 text-xs text-slate-500">
+                      Submitted description: {item.description}{item.source_info && <span> · Source: {item.source_info}</span>}
+                    </div>
+                  )}
+
+                  {item.status === 'pending' && (
+                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                      <label className="min-w-64 flex-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        Internal review notes
+                        <textarea rows={2} value={submissionNotes[item.id] ?? item.internal_review_notes ?? ''} onChange={(e) => setSubmissionNotes((prev) => ({ ...prev, [item.id]: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900" />
+                      </label>
+                      <Button size="sm" variant="outline" disabled={isBusy} onClick={async () => { const nextNotes = (submissionNotes[item.id] ?? item.internal_review_notes ?? '').trim() || null; const { error } = await getSupabase().from('community_submissions').update({ internal_review_notes: nextNotes }).eq('id', item.id).eq('status', 'pending'); if (error) notify('err', error.message); else { await loadSubmissions(); notify('ok', 'Internal review notes saved.'); } }}>
+                        Save notes
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.status === 'pending' && (
+                      <>
+                        <Button size="sm" variant="outline" disabled={isBusy || !edit.title.trim()} onClick={() => void savePendingDraft()}>
+                          <Save className="h-3.5 w-3.5" />
+                          Save Draft Edits
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={isBusy || !destinationSubjectId || !edit.title.trim()}
+                          onClick={async () => {
+                            if (likelyDuplicates.length > 0 && !window.confirm(`A similar resource already exists in this subject (${likelyDuplicates[0].title}). Continue and publish this submission as an additional resource?`)) {
+                              return;
+                            }
+                            setBusySubmissionId(item.id);
+                            let copiedPath = '';
+                            try {
+                              const { data: file, error: downloadError } = await getSupabase().storage.from('pending-submissions').download(item.file_path);
+                              if (downloadError || !file) throw downloadError || new Error('Could not read pending file.');
+                              copiedPath = `community/${item.id}/${crypto.randomUUID()}-${item.original_file_name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-100)}`;
+                              const { error: uploadError } = await getSupabase().storage.from('study-resources').upload(copiedPath, file, { contentType: item.mime_type, upsert: false });
+                              if (uploadError) throw uploadError;
+                              const { error: approveError } = await getSupabase().rpc('approve_community_submission', {
+                                p_submission_id: item.id,
+                                p_subject_id: destinationSubjectId,
+                                p_module_id: destinationModuleId || null,
+                                p_topic_id: destinationTopicId || null,
+                                p_published_file_path: copiedPath,
+                                p_title: edit.title,
+                                p_description: edit.description,
+                                p_category: edit.category,
+                                p_source_info: edit.source_info,
+                              });
+                              if (approveError) throw approveError;
+                              await loadSubmissions();
+                              await loadNotifications();
+                              await loadSubjects();
+                              if (selectedSubjectId === destinationSubjectId) await loadSubjectScopedData(selectedSubjectId);
+                              notify('ok', 'Resource approved and added to the selected subject/module. Existing resources were kept.');
+                            } catch (err) {
+                              if (copiedPath) await getSupabase().storage.from('study-resources').remove([copiedPath]);
+                              notify('err', (err as Error).message);
+                            } finally {
+                              setBusySubmissionId(null);
+                            }
+                          }}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          {isBusy ? 'Approving…' : 'Approve & Publish'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            const reason = window.prompt('Optional rejection reason:');
+                            if (reason === null) return;
+                            setBusySubmissionId(item.id);
+                            try {
+                              const { error } = await getSupabase().from('community_submissions').update({ status: 'rejected', reviewed_by: (await api.currentUser())?.id, reviewed_at: new Date().toISOString(), rejection_reason: reason.trim() || null }).eq('id', item.id).eq('status', 'pending');
+                              if (error) throw error;
+                              await loadSubmissions();
+                              notify('ok', 'Submission rejected and kept private.');
+                            } catch (err) {
+                              notify('err', (err as Error).message);
+                            } finally {
+                              setBusySubmissionId(null);
+                            }
+                          }}
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            if (!window.confirm('Delete this submission and its pending file?')) return;
+                            setBusySubmissionId(item.id);
+                            try {
+                              const { error } = await getSupabase().from('community_submissions').delete().eq('id', item.id);
+                              if (error) throw error;
+                              await getSupabase().storage.from('pending-submissions').remove([item.file_path]);
+                              await loadSubmissions();
+                              await loadNotifications();
+                            } catch (err) {
+                              notify('err', (err as Error).message);
+                            } finally {
+                              setBusySubmissionId(null);
+                            }
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                    {item.status === 'approved' && (
+                      <Button size="sm" disabled={isBusy || !destinationSubjectId || !edit.title.trim()} onClick={() => void saveMetadata()}>
+                        <Save className="h-3.5 w-3.5" />
+                        {isBusy ? 'Saving…' : 'Save resource details'}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
           })}
           {submissions.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-slate-500">No community submissions yet.</CardContent></Card>}
         </section>
@@ -1822,6 +2270,16 @@ export function AdminDashboardPage() {
           </CardContent>
         </Card>
       )}
+      <PdfViewerModal
+        open={Boolean(submissionPreview)}
+        onClose={() => setSubmissionPreview(null)}
+        title={submissionPreview?.title || ''}
+        fileUrl={submissionPreview?.fileUrl || null}
+        downloadUrl={submissionPreview?.downloadUrl}
+        fileName={submissionPreview?.fileName}
+        fileSizeBytes={submissionPreview?.fileSizeBytes}
+        mimeType={submissionPreview?.mimeType}
+      />
     </div>
   );
 }
