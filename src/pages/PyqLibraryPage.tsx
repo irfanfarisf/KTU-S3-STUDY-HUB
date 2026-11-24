@@ -128,7 +128,7 @@ export function PyqLibraryPage() {
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {papers.map((doc) => (
-            <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
+            <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
           ))}
         </div>
       )}
@@ -138,8 +138,10 @@ export function PyqLibraryPage() {
         onClose={() => setPdfPreview(null)}
         title={pdfPreview?.title || ''}
         fileUrl={pdfPreview?.file_url || null}
+        downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
+        mimeType={pdfPreview?.mime_type}
       />
     </div>
   );

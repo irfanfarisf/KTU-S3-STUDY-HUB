@@ -8,7 +8,7 @@ Students can browse published content without an account. Signing in lets them s
 
 The local `.env.local` already contains `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The configured project is reachable, but its `public.universities` table was not installed when checked. Install the schema before running the app:
 
-1. In the Supabase SQL Editor, apply migrations `001_initial_schema.sql` through `004_community_submissions_notifications.sql` in order. Migration 004 adds community submissions, private pending-file storage, admin notifications, branch/semester options, and the admin-only approval function. It does not reset existing academic content.
+1. In the Supabase SQL Editor, apply migrations `001_initial_schema.sql` through `005_community_resource_routing.sql` in order. Migration 004 adds community submissions and notifications; migration 005 adds editable approval routing and published-resource metadata updates. These are incremental and do not reset existing academic content.
 2. Enable email/password sign-up in Supabase Auth. Set the project's Site URL to the app origin and add `http://localhost:5173/**` plus the deployed site's `https://<your-render-site>/**` to the redirect URL allowlist. Email confirmation can remain enabled; the account page explains the confirmation step.
 3. Create the administrator in **Authentication → Users** and confirm its email. Then add that Auth user's UUID to `public.admins` in SQL Editor:
 
@@ -29,7 +29,7 @@ Never put a Supabase service-role or secret key in a `VITE_` variable or in the 
 
 The existing SQLite database contains seeded subjects, modules, questions, notes, and revision items. The one-time importer preserves row IDs, uploads local resource files to the `study-resources` bucket, and advances Postgres sequences. It does not copy the local admin password.
 
-1. Apply migrations 001–004 and create the Supabase admin first.
+1. Apply migrations 001–005 and create the Supabase admin first.
 2. Put the Supabase **service-role/secret key** in the ignored `.env.local` as `SUPABASE_SERVICE_ROLE_KEY` (or set it only in the current shell). This key is read by the one-time import script and is never read by the frontend.
 3. Run `npm run migrate:sqlite-to-supabase`. The script reads `data/studyhub.db` and `storage/uploads` by default. Override `SQLITE_DB_PATH`, `APP_DATA_DIR`, or `UPLOADS_DIR` if needed.
 4. Remove the service-role key from `.env.local` after the import. It is not required at runtime.

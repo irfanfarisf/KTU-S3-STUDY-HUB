@@ -327,7 +327,7 @@ export function ModuleDetailPage() {
           ) : (
             <div className="space-y-3">
               {originalNotes.map((doc) => (
-                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
               ))}
             </div>
           )}
@@ -344,7 +344,7 @@ export function ModuleDetailPage() {
           ) : (
             <div className="space-y-3">
               {handwrittenNotes.map((doc) => (
-                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
+                <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
               ))}
             </div>
           )}
@@ -399,7 +399,7 @@ export function ModuleDetailPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {[...modulePyqs, ...subjectLevelPapers].map((doc) => (
-              <ResourceFileCard key={doc.id} resource={doc} onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })} />
+              <ResourceFileCard key={doc.id} resource={doc} onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })} />
             ))}
           </div>
         )}
@@ -558,8 +558,10 @@ export function ModuleDetailPage() {
         onClose={() => setPdfPreview(null)}
         title={pdfPreview?.title || ''}
         fileUrl={pdfPreview?.file_url || null}
+        downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
+        mimeType={pdfPreview?.mime_type}
       />
     </div>
   );

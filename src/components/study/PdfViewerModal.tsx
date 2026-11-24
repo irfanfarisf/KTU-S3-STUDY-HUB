@@ -12,6 +12,7 @@ interface PdfViewerModalProps {
   downloadUrl?: string | null;
   fileName?: string | null;
   fileSizeBytes?: number | null;
+  mimeType?: string | null;
 }
 
 export function PdfViewerModal({
@@ -22,6 +23,7 @@ export function PdfViewerModal({
   downloadUrl: explicitDownloadUrl,
   fileName,
   fileSizeBytes,
+  mimeType,
 }: PdfViewerModalProps) {
   if (!fileUrl) return null;
   const downloadUrl = explicitDownloadUrl
@@ -43,31 +45,27 @@ export function PdfViewerModal({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
             <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            <span>Inline PDF Preview (use Open New Tab on mobile if embedded scroll is restricted)</span>
+            <span>{mimeType?.startsWith('image/') ? 'Image preview' : mimeType === 'application/pdf' || !mimeType ? 'PDF preview' : 'Document download'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <a href={fileUrl} target="_blank" rel="noreferrer">
+            {(mimeType?.startsWith('image/') || mimeType === 'application/pdf' || !mimeType) && <a href={fileUrl} target="_blank" rel="noreferrer">
               <Button variant="outline" size="sm">
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open New Tab
               </Button>
-            </a>
+            </a>}
             <a href={downloadUrl} download={fileName || 'resource.pdf'}>
               <Button variant="primary" size="sm">
                 <Download className="h-3.5 w-3.5" />
-                Download PDF
+                Download file
               </Button>
             </a>
           </div>
         </div>
 
-        <div className="h-[68vh] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
-          <iframe
-            src={fileUrl}
-            title={title}
-            className="h-full w-full"
-          />
-        </div>
+        {mimeType?.startsWith('image/') ? <div className="flex max-h-[68vh] w-full items-center justify-center overflow-auto rounded-xl border border-slate-200 bg-slate-100 p-3 dark:border-slate-800 dark:bg-slate-950"><img src={fileUrl} alt={title} className="max-h-[64vh] max-w-full object-contain" /></div>
+          : mimeType === 'application/pdf' || !mimeType ? <div className="h-[68vh] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950"><iframe src={fileUrl} title={title} className="h-full w-full" /></div>
+          : <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">Inline preview is not available for this document type. Use Download to open it in a compatible app.</div>}
       </div>
     </Modal>
   );

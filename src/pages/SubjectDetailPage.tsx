@@ -796,6 +796,7 @@ export function SubjectDetailPage() {
         downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
+        mimeType={pdfPreview?.mime_type}
       />
     </div>
   );
@@ -811,8 +812,42 @@ export function ResourceFileCard({
   const { isBookmarked, toggleBookmark } = useStudy();
   const bKey = `resource:${resource.id}`;
   const bookmarked = isBookmarked(bKey);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(resource.file_url);
-  useEffect(() => { let active = true; api.resourceFileUrl(resource, true).then((url) => { if (active) setDownloadUrl(url); }).catch(() => {}); return () => { active = false; }; }, [resource.id, resource.file_path, resource.file_url]);
+  const [fileActionError, setFileActionError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  const openPreview = async () => {
+    setFileActionError('');
+    try {
+      const [previewUrl, downloadUrl] = await Promise.all([
+        api.resourceFileUrl(resource),
+        api.resourceFileUrl(resource, true),
+      ]);
+      if (!previewUrl || !downloadUrl) throw new Error('This resource file is unavailable.');
+      onPreview(previewUrl, downloadUrl);
+    } catch (error) {
+      setFileActionError((error as Error).message || 'Could not create a preview link.');
+    }
+  };
+
+  const downloadFile = async () => {
+    setFileActionError('');
+    setDownloading(true);
+    try {
+      const url = await api.resourceFileUrl(resource, true);
+      if (!url) throw new Error('This resource file is unavailable.');
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = resource.file_name || 'resource';
+      link.rel = 'noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      setFileActionError((error as Error).message || 'Could not download this file.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <Card>
@@ -865,22 +900,17 @@ export function ResourceFileCard({
 
         {(resource.file_url || resource.file_path) && (
           <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
-            <Button size="sm" variant="outline" className="flex-1" onClick={async () => { try { onPreview((await api.resourceFileUrl(resource)) || undefined, downloadUrl || undefined); } catch (error) { console.error(error); } }}>
+            <Button size="sm" variant="outline" className="flex-1" onClick={() => void openPreview()}>
               <Eye className="h-3.5 w-3.5" />
-              Preview PDF
+              Preview
             </Button>
-            <a
-              href={downloadUrl || undefined}
-              download={resource.file_name || 'resource.pdf'}
-              className="flex-1"
-            >
-              <Button size="sm" className="w-full">
+              <Button size="sm" className="flex-1" disabled={downloading} onClick={() => void downloadFile()}>
                 <Download className="h-3.5 w-3.5" />
-                Download
+                {downloading ? 'Preparing…' : 'Download'}
               </Button>
-            </a>
           </div>
         )}
+        {fileActionError && <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">{fileActionError}</p>}
       </CardContent>
     </Card>
   );

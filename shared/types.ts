@@ -171,6 +171,7 @@ export interface Resource {
   diagram_key: string | null;
   file_url: string | null;
   file_path?: string | null;
+  download_url?: string | null;
   file_name: string | null;
   file_size_bytes: number | null;
   mime_type: string | null;

@@ -210,7 +210,7 @@ export function QuestionBankPage() {
                   <ResourceFileCard
                     key={resource.id}
                     resource={resource}
-                    onPreview={(url) => setPdfPreview({ ...resource, file_url: url || resource.file_url })}
+                    onPreview={(url, downloadUrl) => setPdfPreview({ ...resource, file_url: url || resource.file_url, download_url: downloadUrl })}
                   />
                 ))}
               </div>
@@ -244,8 +244,10 @@ export function QuestionBankPage() {
         onClose={() => setPdfPreview(null)}
         title={pdfPreview?.title || ''}
         fileUrl={pdfPreview?.file_url || null}
+        downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
+        mimeType={pdfPreview?.mime_type}
       />
     </div>
   );

@@ -164,7 +164,7 @@ export function NotesLibraryPage() {
                   <ResourceFileCard
                     key={doc.id}
                     resource={doc}
-                    onPreview={(url) => setPdfPreview({ ...doc, file_url: url || doc.file_url })}
+                    onPreview={(url, downloadUrl) => setPdfPreview({ ...doc, file_url: url || doc.file_url, download_url: downloadUrl })}
                   />
                 ))}
               </div>
@@ -223,8 +223,10 @@ export function NotesLibraryPage() {
         onClose={() => setPdfPreview(null)}
         title={pdfPreview?.title || ''}
         fileUrl={pdfPreview?.file_url || null}
+        downloadUrl={pdfPreview?.download_url}
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
+        mimeType={pdfPreview?.mime_type}
       />
     </div>
   );
