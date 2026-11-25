@@ -7,11 +7,22 @@ import type {
   Resource,
   RevisionItem,
   SearchResultItem,
+  StorageAuditRow,
   Subject,
   SubjectSyllabus,
   Topic,
 } from '@shared/types';
 import { getSupabase, supabase } from '@/lib/supabase';
+import {
+  MAX_RESOURCE_FILE_BYTES,
+  STUDY_RESOURCES_BUCKET,
+  buildStorageObjectPath,
+  createFreshSignedUrl,
+  extractSupabaseStorageRef,
+  isInvalidPermanentUrl,
+  normalizeStoragePath,
+  resolveResourceMimeType,
+} from '@/lib/storage';
 
 type Row = Record<string, any>;
 
@@ -297,6 +308,7 @@ export const api = {
       content_markdown: null,
       diagram_key: null,
       file_url: null,
+      storage_bucket: row.storage_bucket || STUDY_RESOURCES_BUCKET,
       file_path: row.file_path,
       file_name: row.file_name,
       file_size_bytes: row.file_size_bytes,
@@ -473,39 +485,56 @@ export const api = {
     return { user: admin };
   },
   uploadFile: async (file: File) => {
-    const extMimeMap: Record<string, string> = {
-      pdf: 'application/pdf',
-      doc: 'application/msword',
-      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      png: 'image/png',
-      webp: 'image/webp',
-      txt: 'text/plain',
-      md: 'text/markdown',
-    };
-    const allowed = new Set(Object.values(extMimeMap));
-    const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const resolvedMime = file.type || extMimeMap[ext] || '';
-    if (!extMimeMap[ext] || !allowed.has(resolvedMime)) {
-      throw new Error('Choose a PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP, or supported text file.');
+    const resolvedMime = resolveResourceMimeType(file, true);
+    if (!file.size || file.size > MAX_RESOURCE_FILE_BYTES) {
+      throw new Error('File size must be between 1 byte and 25 MB.');
     }
-    if (!file.size || file.size > 25 * 1024 * 1024) throw new Error('File size must be between 1 byte and 25 MB.');
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-100);
-    const path = `${crypto.randomUUID()}-${safeName}`;
-    const storage = getSupabase().storage.from('study-resources');
+    const path = buildStorageObjectPath(file.name);
+    const storage = getSupabase().storage.from(STUDY_RESOURCES_BUCKET);
     const { error } = await storage.upload(path, file, { contentType: resolvedMime, upsert: false });
     if (error) throw new Error(error.message);
-    return { file_url: '', file_path: path, file_name: file.name, stored_name: path, file_size_bytes: file.size, mime_type: resolvedMime };
+    return {
+      file_url: '',
+      storage_bucket: STUDY_RESOURCES_BUCKET,
+      file_path: path,
+      file_name: file.name,
+      stored_name: path,
+      file_size_bytes: file.size,
+      mime_type: resolvedMime,
+    };
   },
   resourceFileUrl: async (resource: Resource, download = false): Promise<string | null> => {
     if (resource.file_path) {
-      const { data, error } = await getSupabase().storage.from('study-resources').createSignedUrl(resource.file_path, 300, { download: download ? resource.file_name || true : undefined });
-      if (error) throw new Error(error.message);
-      return data.signedUrl;
+      return createFreshSignedUrl({
+        bucket: resource.storage_bucket || STUDY_RESOURCES_BUCKET,
+        path: resource.file_path,
+        downloadFileName: download ? resource.file_name || true : undefined,
+        fileNameForError: resource.file_name || resource.title,
+      });
     }
     if (!resource.file_url) return null;
+    const legacyRef = extractSupabaseStorageRef(resource.file_url);
+    if (legacyRef) {
+      return createFreshSignedUrl({
+        bucket: legacyRef.bucket,
+        path: legacyRef.path,
+        downloadFileName: download ? resource.file_name || true : undefined,
+        fileNameForError: resource.file_name || resource.title,
+      });
+    }
+    if (isInvalidPermanentUrl(resource.file_url)) {
+      throw new Error(
+        `This resource references a temporary or local file URL that cannot be accessed from other devices. Please ask an admin to re-upload "${resource.file_name || resource.title}".`
+      );
+    }
     return download ? `${resource.file_url}${resource.file_url.includes('?') ? '&' : '?'}download=1` : resource.file_url;
+  },
+  refreshPreviewUrls: async (resource: Resource): Promise<{ fileUrl: string; downloadUrl: string | null } | null> => {
+    const [fileUrl, downloadUrl] = await Promise.all([
+      api.resourceFileUrl(resource, false),
+      api.resourceFileUrl(resource, true),
+    ]);
+    return fileUrl ? { fileUrl, downloadUrl } : null;
   },
 
   createBranch: async (payload: { name: string; code: string; short_name?: string; description?: string }) => ({ id: await insertId('branches', { ...payload, code: payload.code.toUpperCase(), short_name: payload.short_name || payload.code.toUpperCase() }) }),
@@ -521,8 +550,24 @@ export const api = {
     return { id: await insertId('topics', { ...payload, title, slug }) };
   },
   deleteTopic: async (id: number) => deleteRow('topics', id),
-  createResource: async (payload: Record<string, unknown>) => ({ id: await insertId('resources', { ...payload, content_format: payload.content_format || (payload.file_url || payload.file_path ? 'pdf' : 'markdown') }) }),
-  patchResource: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('resources').update(payload).eq('id', id)); return { ok: true }; },
+  createResource: async (payload: Record<string, unknown>) => {
+    if (typeof payload.file_url === 'string' && isInvalidPermanentUrl(payload.file_url)) {
+      throw new Error('Temporary blob URLs, local filesystem paths, and expiring signed URLs cannot be saved in the database.');
+    }
+    const normalized = {
+      ...payload,
+      ...(payload.file_path ? { file_path: normalizeStoragePath(String(payload.file_path)), storage_bucket: payload.storage_bucket || STUDY_RESOURCES_BUCKET, file_url: null } : {}),
+      content_format: payload.content_format || (payload.file_url || payload.file_path ? 'pdf' : 'markdown'),
+    };
+    return { id: await insertId('resources', normalized) };
+  },
+  patchResource: async (id: number, payload: Record<string, unknown>) => {
+    if (typeof payload.file_url === 'string' && isInvalidPermanentUrl(payload.file_url)) {
+      throw new Error('Temporary blob URLs, local filesystem paths, and expiring signed URLs cannot be saved in the database.');
+    }
+    await result(getSupabase().from('resources').update(payload).eq('id', id));
+    return { ok: true };
+  },
   unpublishResource: async (id: number) => {
     const { error } = await getSupabase().rpc('unpublish_resource', { p_resource_id: id });
     if (error) throw new Error(error.message);
@@ -586,23 +631,64 @@ export const api = {
     return { ok: true };
   },
   replaceResourceFile: async (id: number, file: File) => {
-    const current = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());
+    const current = await result<Row | null>(getSupabase().from('resources').select('file_path,storage_bucket').eq('id', id).maybeSingle());
     const next = await api.uploadFile(file);
-    await result(getSupabase().from('resources').update({ file_path: next.file_path, file_url: null, file_name: next.file_name, file_size_bytes: next.file_size_bytes, mime_type: next.mime_type, content_format: next.mime_type === 'application/pdf' ? 'pdf' : 'mixed' }).eq('id', id));
-    if (current?.file_path) await getSupabase().storage.from('study-resources').remove([current.file_path]);
+    await result(getSupabase().from('resources').update({
+      storage_bucket: next.storage_bucket,
+      file_path: next.file_path,
+      file_url: null,
+      file_name: next.file_name,
+      file_size_bytes: next.file_size_bytes,
+      mime_type: next.mime_type,
+      content_format: next.mime_type === 'application/pdf' ? 'pdf' : 'mixed',
+    }).eq('id', id));
+    if (current?.file_path) {
+      await getSupabase().storage.from(current.storage_bucket || STUDY_RESOURCES_BUCKET).remove([current.file_path]);
+    }
   },
   saveSyllabus: async (subjectId: number, file: File, metadata: { title?: string; description?: string; is_published: boolean }) => {
-    if (file.type !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Official syllabi must be PDF files.');
-    if (!file.size || file.size > 25 * 1024 * 1024) throw new Error('Syllabus PDF must be smaller than 25 MB.');
-    const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path').eq('subject_id', subjectId).maybeSingle());
+    const mime = resolveResourceMimeType(file, false);
+    if (mime !== 'application/pdf') throw new Error('Official syllabi must be PDF files.');
+    if (!file.size || file.size > MAX_RESOURCE_FILE_BYTES) throw new Error('Syllabus PDF must be smaller than 25 MB.');
+    const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path,storage_bucket').eq('subject_id', subjectId).maybeSingle());
     const upload = await api.uploadFile(file);
-    await result(getSupabase().from('subject_syllabi').upsert({ subject_id: subjectId, title: metadata.title || 'Official Syllabus', description: metadata.description || '', file_path: upload.file_path, file_name: file.name, file_size_bytes: file.size, mime_type: file.type, is_published: metadata.is_published, updated_at: new Date().toISOString() }, { onConflict: 'subject_id' }));
-    if (old?.file_path) await getSupabase().storage.from('study-resources').remove([old.file_path]);
+    await result(getSupabase().from('subject_syllabi').upsert({
+      subject_id: subjectId,
+      title: metadata.title || 'Official Syllabus',
+      description: metadata.description || '',
+      storage_bucket: upload.storage_bucket,
+      file_path: upload.file_path,
+      file_name: file.name,
+      file_size_bytes: file.size,
+      mime_type: mime,
+      is_published: metadata.is_published,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'subject_id' }));
+    if (old?.file_path) {
+      await getSupabase().storage.from(old.storage_bucket || STUDY_RESOURCES_BUCKET).remove([old.file_path]);
+    }
   },
   setSyllabusPublished: async (subjectId: number, is_published: boolean) => { await result(getSupabase().from('subject_syllabi').update({ is_published }).eq('subject_id', subjectId)); },
   updateSyllabusMetadata: async (subjectId: number, metadata: { title: string; description: string }) => { await result(getSupabase().from('subject_syllabi').update(metadata).eq('subject_id', subjectId)); },
-  deleteSyllabus: async (subjectId: number) => { const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path').eq('subject_id', subjectId).maybeSingle()); await result(getSupabase().from('subject_syllabi').delete().eq('subject_id', subjectId)); if (old?.file_path) await getSupabase().storage.from('study-resources').remove([old.file_path]); },
-  syllabusUrl: async (path: string, download = false) => { const { data, error } = await getSupabase().storage.from('study-resources').createSignedUrl(path, 300, { download: download ? true : undefined }); if (error) throw new Error(error.message); return data.signedUrl; },
+  deleteSyllabus: async (subjectId: number) => {
+    const old = await result<Row | null>(getSupabase().from('subject_syllabi').select('file_path,storage_bucket').eq('subject_id', subjectId).maybeSingle());
+    await result(getSupabase().from('subject_syllabi').delete().eq('subject_id', subjectId));
+    if (old?.file_path) {
+      await getSupabase().storage.from(old.storage_bucket || STUDY_RESOURCES_BUCKET).remove([old.file_path]);
+    }
+  },
+  syllabusUrl: async (path: string, download = false, fileName?: string | null, bucket?: string | null) =>
+    createFreshSignedUrl({
+      bucket: bucket || STUDY_RESOURCES_BUCKET,
+      path,
+      downloadFileName: download ? (fileName || true) : undefined,
+      fileNameForError: fileName || 'Official Syllabus',
+    }),
+  auditStorageReferences: async (): Promise<StorageAuditRow[]> => {
+    const { data, error } = await getSupabase().rpc('audit_storage_references');
+    if (error) throw new Error(error.message);
+    return (data || []) as StorageAuditRow[];
+  },
   createQuestion: async (payload: Record<string, unknown>) => {
     const question = { ...payload };
     const answerFields = ['short_answer', 'detailed_explanation', 'code_snippet', 'code_language', 'formula_text', 'diagram_key', 'expected_marks'];

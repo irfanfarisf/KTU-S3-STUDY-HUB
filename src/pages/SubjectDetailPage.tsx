@@ -34,6 +34,7 @@ import {
   cn,
   formatBytes,
 } from '@/lib/utils';
+import { getFileExtension, getFilePreviewKind, triggerBrowserDownload } from '@/lib/storage';
 import type { Resource } from '@shared/types';
 
 type SubjectTab =
@@ -59,16 +60,19 @@ export function SubjectDetailPage() {
   const [qTypeFilter, setQTypeFilter] = useState<string>('all');
   const [pdfPreview, setPdfPreview] = useState<(Resource & { download_url?: string | null }) | null>(null);
   const [syllabusError, setSyllabusError] = useState('');
+  const [inlineFileErrors, setInlineFileErrors] = useState<Record<number, string>>({});
   const showPreview = async (resource: Resource) => {
+    setInlineFileErrors((prev) => ({ ...prev, [resource.id]: '' }));
     try {
-      const [previewUrl, dlUrl] = await Promise.all([
-        api.resourceFileUrl(resource),
-        api.resourceFileUrl(resource, true),
-      ]);
-      if (!previewUrl) return;
-      setPdfPreview({ ...resource, file_url: previewUrl, download_url: dlUrl });
+      const fresh = await api.refreshPreviewUrls(resource);
+      if (!fresh?.fileUrl) throw new Error('This resource file is unavailable.');
+      setPdfPreview({ ...resource, file_url: fresh.fileUrl, download_url: fresh.downloadUrl });
+    } catch (err) {
+      setInlineFileErrors((prev) => ({
+        ...prev,
+        [resource.id]: (err as Error).message || 'Could not open preview for this file.',
+      }));
     }
-    catch (error) { console.error(error); }
   };
 
   const { isBookmarked, toggleBookmark, completedTopicIds } = useStudy();
@@ -462,8 +466,29 @@ export function SubjectDetailPage() {
                             const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path;
                             const [url, dlUrl] = legacy
                               ? await Promise.all([api.resourceFileUrl(officialSyllabus as Resource), api.resourceFileUrl(officialSyllabus as Resource, true)])
-                              : await Promise.all([api.syllabusUrl(officialSyllabus.file_path!), api.syllabusUrl(officialSyllabus.file_path!, true)]);
-                            setPdfPreview({ ...(syllabusDocs[0] || {} as Resource), id: -1, subject_id: subject.id, title: officialSyllabus.title || 'Official Syllabus', description: officialSyllabus.description || '', resource_type: 'syllabus', source_category: 'official_document', importance: 'important', content_format: 'pdf', file_url: url, download_url: dlUrl, file_name: officialSyllabus.file_name, file_size_bytes: officialSyllabus.file_size_bytes, mime_type: 'application/pdf' });
+                              : await Promise.all([
+                                  api.syllabusUrl(officialSyllabus.file_path!, false, officialSyllabus.file_name, officialSyllabus.storage_bucket),
+                                  api.syllabusUrl(officialSyllabus.file_path!, true, officialSyllabus.file_name, officialSyllabus.storage_bucket),
+                                ]);
+                            if (!url) throw new Error('Official syllabus PDF is unavailable.');
+                            setPdfPreview({
+                              ...(syllabusDocs[0] || ({} as Resource)),
+                              id: -1,
+                              subject_id: subject.id,
+                              title: officialSyllabus.title || 'Official Syllabus',
+                              description: officialSyllabus.description || '',
+                              resource_type: 'syllabus',
+                              source_category: 'official_document',
+                              importance: 'important',
+                              content_format: 'pdf',
+                              storage_bucket: officialSyllabus.storage_bucket || 'study-resources',
+                              file_path: officialSyllabus.file_path || null,
+                              file_url: url,
+                              download_url: dlUrl,
+                              file_name: officialSyllabus.file_name,
+                              file_size_bytes: officialSyllabus.file_size_bytes,
+                              mime_type: officialSyllabus.mime_type || 'application/pdf',
+                            });
                           } catch (err) {
                             setSyllabusError((err as Error).message || 'Could not preview syllabus PDF.');
                           }
@@ -480,8 +505,9 @@ export function SubjectDetailPage() {
                             const legacy = !('file_path' in officialSyllabus) || !officialSyllabus.file_path;
                             const url = legacy
                               ? await api.resourceFileUrl(officialSyllabus as Resource, true)
-                              : await api.syllabusUrl(officialSyllabus.file_path!, true);
-                            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                              : await api.syllabusUrl(officialSyllabus.file_path!, true, officialSyllabus.file_name, officialSyllabus.storage_bucket);
+                            if (!url) throw new Error('Official syllabus PDF is unavailable.');
+                            triggerBrowserDownload(url, officialSyllabus.file_name || 'syllabus.pdf');
                           } catch (err) {
                             setSyllabusError((err as Error).message || 'Could not download syllabus PDF.');
                           }
@@ -593,32 +619,39 @@ export function SubjectDetailPage() {
                     )}
 
                     {(res.file_url || res.file_path) && (
-                      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
-                        <Button size="sm" variant="outline" onClick={() => void showPreview(res)}>
-                          <Eye className="h-3.5 w-3.5" />
-                          Preview File
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={async () => {
-                            try {
-                              const url = await api.resourceFileUrl(res, true);
-                              if (!url) throw new Error('This resource file is unavailable.');
-                              const link = document.createElement('a');
-                              link.href = url;
-                              link.download = res.file_name || 'resource';
-                              link.rel = 'noreferrer';
-                              document.body.appendChild(link);
-                              link.click();
-                              link.remove();
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download{res.file_size_bytes ? ` (${formatBytes(res.file_size_bytes)})` : ''}
-                        </Button>
+                      <div className="mt-4 space-y-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {['pdf', 'image'].includes(getFilePreviewKind(res.mime_type, res.file_name)) && (
+                            <Button size="sm" variant="outline" onClick={() => void showPreview(res)}>
+                              <Eye className="h-3.5 w-3.5" />
+                              Preview File
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              setInlineFileErrors((prev) => ({ ...prev, [res.id]: '' }));
+                              try {
+                                const url = await api.resourceFileUrl(res, true);
+                                if (!url) throw new Error('This resource file is unavailable.');
+                                triggerBrowserDownload(url, res.file_name || 'resource');
+                              } catch (err) {
+                                setInlineFileErrors((prev) => ({
+                                  ...prev,
+                                  [res.id]: (err as Error).message || 'Could not download this file.',
+                                }));
+                              }
+                            }}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download{res.file_size_bytes ? ` (${formatBytes(res.file_size_bytes)})` : ''}
+                          </Button>
+                        </div>
+                        {inlineFileErrors[res.id] && (
+                          <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
+                            {inlineFileErrors[res.id]}
+                          </p>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -859,6 +892,7 @@ export function SubjectDetailPage() {
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
         mimeType={pdfPreview?.mime_type}
+        onRefreshUrl={pdfPreview ? () => api.refreshPreviewUrls(pdfPreview) : undefined}
       />
     </div>
   );
@@ -875,19 +909,23 @@ export function ResourceFileCard({
   const bKey = `resource:${resource.id}`;
   const bookmarked = isBookmarked(bKey);
   const [fileActionError, setFileActionError] = useState('');
+  const [previewing, setPreviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const previewKind = getFilePreviewKind(resource.mime_type, resource.file_name);
+  const canPreview = previewKind === 'pdf' || previewKind === 'image';
+  const extLabel = getFileExtension(resource.file_name).toUpperCase();
 
   const openPreview = async () => {
     setFileActionError('');
+    setPreviewing(true);
     try {
-      const [previewUrl, downloadUrl] = await Promise.all([
-        api.resourceFileUrl(resource),
-        api.resourceFileUrl(resource, true),
-      ]);
-      if (!previewUrl || !downloadUrl) throw new Error('This resource file is unavailable.');
-      onPreview(previewUrl, downloadUrl);
+      const fresh = await api.refreshPreviewUrls(resource);
+      if (!fresh?.fileUrl || !fresh?.downloadUrl) throw new Error('This resource file is unavailable.');
+      onPreview(fresh.fileUrl, fresh.downloadUrl);
     } catch (error) {
       setFileActionError((error as Error).message || 'Could not create a preview link.');
+    } finally {
+      setPreviewing(false);
     }
   };
 
@@ -897,13 +935,7 @@ export function ResourceFileCard({
     try {
       const url = await api.resourceFileUrl(resource, true);
       if (!url) throw new Error('This resource file is unavailable.');
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = resource.file_name || 'resource';
-      link.rel = 'noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      triggerBrowserDownload(url, resource.file_name || 'resource');
     } catch (error) {
       setFileActionError((error as Error).message || 'Could not download this file.');
     } finally {
@@ -955,6 +987,7 @@ export function ResourceFileCard({
 
           <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             <span>Source: {SOURCE_CATEGORY_LABELS[resource.source_category]}</span>
+            {extLabel && <span>• {extLabel}</span>}
             {resource.file_size_bytes && <span>• {formatBytes(resource.file_size_bytes)}</span>}
             {resource.exam_year && <span>• {resource.exam_year}</span>}
           </div>
@@ -962,14 +995,16 @@ export function ResourceFileCard({
 
         {(resource.file_url || resource.file_path) && (
           <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
-            <Button size="sm" variant="outline" className="flex-1" onClick={() => void openPreview()}>
-              <Eye className="h-3.5 w-3.5" />
-              Preview
-            </Button>
-              <Button size="sm" className="flex-1" disabled={downloading} onClick={() => void downloadFile()}>
-                <Download className="h-3.5 w-3.5" />
-                {downloading ? 'Preparing…' : 'Download'}
+            {canPreview && (
+              <Button size="sm" variant="outline" className="flex-1" disabled={previewing} onClick={() => void openPreview()}>
+                <Eye className="h-3.5 w-3.5" />
+                {previewing ? 'Opening…' : 'Preview'}
               </Button>
+            )}
+            <Button size="sm" className="flex-1" disabled={downloading} onClick={() => void downloadFile()}>
+              <Download className="h-3.5 w-3.5" />
+              {downloading ? 'Preparing…' : canPreview ? 'Download' : `Download${extLabel ? ` ${extLabel}` : ''}`}
+            </Button>
           </div>
         )}
         {fileActionError && <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">{fileActionError}</p>}

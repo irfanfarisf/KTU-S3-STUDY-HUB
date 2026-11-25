@@ -22,7 +22,7 @@ import {
   Upload,
   Zap,
 } from 'lucide-react';
-import type { ModuleItem, ProgramItem, Question, Resource, RevisionItem, Subject, Topic } from '@shared/types';
+import type { ModuleItem, ProgramItem, Question, Resource, RevisionItem, StorageAuditRow, Subject, Topic } from '@shared/types';
 import { api } from '@/lib/api';
 import { GENERATED_S3_PACK } from '@/data/generatedS3Pack';
 import { EXPANDED_S3_PACK } from '@/data/expandedS3Pack';
@@ -34,6 +34,13 @@ import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { PdfViewerModal } from '@/components/study/PdfViewerModal';
 import { RESOURCE_TYPE_LABELS } from '@/lib/utils';
+import {
+  PENDING_SUBMISSIONS_BUCKET,
+  STUDY_RESOURCES_BUCKET,
+  buildStorageObjectPath,
+  createFreshSignedUrl,
+  triggerBrowserDownload,
+} from '@/lib/storage';
 import { getSupabase } from '@/lib/supabase';
 
 type AdminTab =
@@ -75,7 +82,9 @@ export function AdminDashboardPage() {
   const [submissionTopicOptions, setSubmissionTopicOptions] = useState<Array<{ id: number; subject_id: number; module_id: number; title: string }>>([]);
   const [publishedResourcesForDupCheck, setPublishedResourcesForDupCheck] = useState<Array<{ id: number; subject_id: number; module_id: number | null; title: string; file_name: string | null; file_size_bytes: number | null; category: string | null }>>([]);
   const [busySubmissionId, setBusySubmissionId] = useState<string | null>(null);
-  const [submissionPreview, setSubmissionPreview] = useState<{ title: string; fileUrl: string; downloadUrl: string; fileName: string; fileSizeBytes: number; mimeType: string } | null>(null);
+  const [submissionPreview, setSubmissionPreview] = useState<{ title: string; fileUrl: string; downloadUrl: string; fileName: string; fileSizeBytes: number; mimeType: string; bucket: string; targetPath: string } | null>(null);
+  const [storageAudit, setStorageAudit] = useState<StorageAuditRow[] | null>(null);
+  const [auditingStorage, setAuditingStorage] = useState(false);
   const [submissionNotes, setSubmissionNotes] = useState<Record<string, string>>({});
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState('all');
@@ -182,7 +191,7 @@ export function AdminDashboardPage() {
     if (error) return;
     const ids = (data || []).map((item: any) => item.published_resource_id).filter(Boolean);
     const [publishedResult, moduleResult, topicResult, existingResourcesResult] = await Promise.all([
-      ids.length ? getSupabase().from('resources').select('id,subject_id,module_id,topic_id,file_path,is_published,deleted_at').in('id', ids) : Promise.resolve({ data: [], error: null } as any),
+      ids.length ? getSupabase().from('resources').select('id,subject_id,module_id,topic_id,storage_bucket,file_path,is_published,deleted_at').in('id', ids) : Promise.resolve({ data: [], error: null } as any),
       getSupabase().from('modules').select('id,subject_id,module_number,title').eq('is_published', true),
       getSupabase().from('topics').select('id,subject_id,module_id,title').eq('is_published', true),
       getSupabase().from('resources').select('id,subject_id,module_id,title,file_name,file_size_bytes,category').eq('is_published', true).is('deleted_at', null),
@@ -943,7 +952,9 @@ export function AdminDashboardPage() {
             const getFileLocation = () => {
               const usePublished = item.status === 'approved' && Boolean(item.published_resource?.file_path);
               return {
-                bucket: usePublished ? 'study-resources' : 'pending-submissions',
+                bucket: usePublished
+                  ? (item.published_resource.storage_bucket || STUDY_RESOURCES_BUCKET)
+                  : (item.storage_bucket || PENDING_SUBMISSIONS_BUCKET),
                 targetPath: usePublished ? item.published_resource.file_path : item.file_path,
               };
             };
@@ -952,20 +963,19 @@ export function AdminDashboardPage() {
               try {
                 const { bucket, targetPath } = getFileLocation();
                 if (!targetPath) throw new Error('Submission file path is missing.');
-                const storage = getSupabase().storage.from(bucket);
-                const [viewRes, dlRes] = await Promise.all([
-                  storage.createSignedUrl(targetPath, 300),
-                  storage.createSignedUrl(targetPath, 300, { download: item.original_file_name || true }),
+                const [fileUrl, downloadUrl] = await Promise.all([
+                  createFreshSignedUrl({ bucket, path: targetPath, fileNameForError: item.original_file_name }),
+                  createFreshSignedUrl({ bucket, path: targetPath, downloadFileName: item.original_file_name || true, fileNameForError: item.original_file_name }),
                 ]);
-                if (viewRes.error) throw viewRes.error;
-                if (dlRes.error) throw dlRes.error;
                 setSubmissionPreview({
                   title: edit.title || item.title,
-                  fileUrl: viewRes.data.signedUrl,
-                  downloadUrl: dlRes.data.signedUrl,
+                  fileUrl,
+                  downloadUrl,
                   fileName: item.original_file_name,
                   fileSizeBytes: item.file_size_bytes,
                   mimeType: item.mime_type,
+                  bucket,
+                  targetPath,
                 });
               } catch (err) {
                 notify('err', (err as Error).message || 'Could not open preview for this file.');
@@ -976,15 +986,13 @@ export function AdminDashboardPage() {
               try {
                 const { bucket, targetPath } = getFileLocation();
                 if (!targetPath) throw new Error('Submission file path is missing.');
-                const { data, error } = await getSupabase().storage.from(bucket).createSignedUrl(targetPath, 300, { download: item.original_file_name || true });
-                if (error) throw error;
-                const link = document.createElement('a');
-                link.href = data.signedUrl;
-                link.download = item.original_file_name || 'resource';
-                link.rel = 'noreferrer';
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
+                const signedUrl = await createFreshSignedUrl({
+                  bucket,
+                  path: targetPath,
+                  downloadFileName: item.original_file_name || true,
+                  fileNameForError: item.original_file_name,
+                });
+                triggerBrowserDownload(signedUrl, item.original_file_name || 'resource');
               } catch (err) {
                 notify('err', (err as Error).message || 'Could not download this file.');
               }
@@ -1253,11 +1261,19 @@ export function AdminDashboardPage() {
                             setBusySubmissionId(item.id);
                             let copiedPath = '';
                             try {
-                              const { data: file, error: downloadError } = await getSupabase().storage.from('pending-submissions').download(item.file_path);
-                              if (downloadError || !file) throw downloadError || new Error('Could not read pending file.');
-                              copiedPath = `community/${item.id}/${crypto.randomUUID()}-${item.original_file_name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-100)}`;
-                              const { error: uploadError } = await getSupabase().storage.from('study-resources').upload(copiedPath, file, { contentType: item.mime_type, upsert: false });
+                              const sourceBucket = item.storage_bucket || PENDING_SUBMISSIONS_BUCKET;
+                              const { data: file, error: downloadError } = await getSupabase().storage.from(sourceBucket).download(item.file_path);
+                              if (downloadError || !file) throw downloadError || new Error('Could not read pending file from private storage.');
+                              copiedPath = buildStorageObjectPath(item.original_file_name, `community/${item.id}`);
+                              const { error: uploadError } = await getSupabase().storage.from(STUDY_RESOURCES_BUCKET).upload(copiedPath, file, { contentType: item.mime_type, upsert: false });
                               if (uploadError) throw uploadError;
+                              // Verify destination object exists and is signable before updating DB records
+                              await createFreshSignedUrl({
+                                bucket: STUDY_RESOURCES_BUCKET,
+                                path: copiedPath,
+                                expiresIn: 60,
+                                fileNameForError: item.original_file_name,
+                              });
                               const { error: approveError } = await getSupabase().rpc('approve_community_submission', {
                                 p_submission_id: item.id,
                                 p_subject_id: destinationSubjectId,
@@ -1274,9 +1290,9 @@ export function AdminDashboardPage() {
                               await loadNotifications();
                               await loadSubjects();
                               if (selectedSubjectId === destinationSubjectId) await loadSubjectScopedData(selectedSubjectId);
-                              notify('ok', 'Resource approved and added to the selected subject/module. Existing resources were kept.');
+                              notify('ok', 'Resource approved, verified in published storage, and added to the selected subject/module.');
                             } catch (err) {
-                              if (copiedPath) await getSupabase().storage.from('study-resources').remove([copiedPath]);
+                              if (copiedPath) await getSupabase().storage.from(STUDY_RESOURCES_BUCKET).remove([copiedPath]);
                               notify('err', (err as Error).message);
                             } finally {
                               setBusySubmissionId(null);
@@ -1815,7 +1831,7 @@ export function AdminDashboardPage() {
                         const uploaded = await api.uploadFile(file);
                         const category = uploadOverrides[uploadKey(file)]?.category || uploadCategory;
                         const categoryType: Record<string, string> = {'KTU Notes':'original_notes','Handwritten Notes':'handwritten_notes','Previous Year Question Papers':'pyq','Model Question Papers':'model_paper','Solved Question Papers':'solved_paper','Question Banks':'exam_notes','Important Questions':'exam_notes','Reference Materials':'reference_notes','Assignments':'exam_notes','Other Resources':'exam_notes'};
-                        await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, scheme_id: activeSubject?.scheme_id ?? null, semester_id: activeSubject?.semester_id ?? null, academic_year_id: activeSubject?.academic_year_id ?? null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (filesToUpload.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: uploaded.mime_type === 'application/pdf' ? 'pdf' : 'mixed', file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
+                        await api.createResource({ subject_id: selectedSubjectId, module_id: uploadModuleId ? Number(uploadModuleId) : null, scheme_id: activeSubject?.scheme_id ?? null, semester_id: activeSubject?.semester_id ?? null, academic_year_id: activeSubject?.academic_year_id ?? null, title: uploadOverrides[uploadKey(file)]?.title.trim() || (filesToUpload.length === 1 && uploadTitle.trim() ? uploadTitle.trim() : file.name.replace(/\.[^.]+$/, '')), description: uploadDescription, resource_type: categoryType[category], category, source_category: 'practice_material', importance: 'important', content_format: uploaded.mime_type === 'application/pdf' ? 'pdf' : 'mixed', storage_bucket: uploaded.storage_bucket, file_url: null, file_path: uploaded.file_path, file_name: uploaded.file_name, file_size_bytes: uploaded.file_size_bytes, mime_type: uploaded.mime_type, is_published: uploadPublished });
                         completed++;
                         setUploadQueue((queue) => queue.filter((queued) => uploadKey(queued) !== uploadKey(file)));
                       }
@@ -1849,6 +1865,7 @@ export function AdminDashboardPage() {
                       exam_type: resForm.exam_type || null,
                       exam_year: resForm.exam_year || null,
                       content_markdown: resForm.content_markdown || null,
+                      storage_bucket: resForm.file_path ? STUDY_RESOURCES_BUCKET : null,
                       file_url: resForm.file_url || null,
                       file_path: resForm.file_path || null,
                       file_name: resForm.file_name || null,
@@ -1864,6 +1881,7 @@ export function AdminDashboardPage() {
                       file_path: '',
                       file_name: '',
                       file_size_bytes: 0,
+                      mime_type: '',
                     }));
                     await loadSubjectScopedData(selectedSubjectId);
                     await loadSubjects();
@@ -1948,7 +1966,7 @@ export function AdminDashboardPage() {
                   </label>
                   <input
                     type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.md,.txt"
+                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.md,.txt"
                     onChange={handleFileUpload}
                     className="mt-1.5 block w-full text-xs"
                   />
@@ -1986,7 +2004,33 @@ export function AdminDashboardPage() {
                 <h2 className="text-base font-bold">
                   Resources for {activeSubject?.code} ({resources.length})
                 </h2>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={auditingStorage}
+                    onClick={async () => {
+                      setAuditingStorage(true);
+                      try {
+                        const rows = await api.auditStorageReferences();
+                        setStorageAudit(rows);
+                        const broken = rows.filter((row) => row.issue !== 'ok');
+                        notify(
+                          broken.length ? 'err' : 'ok',
+                          broken.length
+                            ? `Storage audit found ${broken.length} issue(s) across ${rows.length} file references.`
+                            : `Storage audit passed: all ${rows.length} file references match objects in storage.`
+                        );
+                      } catch (err) {
+                        notify('err', (err as Error).message);
+                      } finally {
+                        setAuditingStorage(false);
+                      }
+                    }}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {auditingStorage ? 'Auditing storage…' : 'Audit All Files'}
+                  </Button>
                   {[
                     { id: 'all' as const, label: `All Active (${resources.length})` },
                     { id: 'published' as const, label: `Published (${resources.filter((r) => r.is_published).length})` },
@@ -2007,6 +2051,45 @@ export function AdminDashboardPage() {
                   ))}
                 </div>
               </div>
+              {storageAudit && (
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-950">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold">
+                      Storage Audit: {storageAudit.filter((row) => row.issue === 'ok').length}/{storageAudit.length} healthy
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStorageAudit(null)}
+                      className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {storageAudit.some((row) => row.issue !== 'ok') ? (
+                    <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+                      {storageAudit
+                        .filter((row) => row.issue !== 'ok')
+                        .map((row) => (
+                          <div
+                            key={`${row.source_table}-${row.record_id}`}
+                            className="rounded-lg border border-rose-200 bg-rose-50/70 p-2 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
+                          >
+                            <div className="font-semibold">
+                              [{row.source_table} #{row.record_id}] {row.subject_code || 'N/A'} — {row.title} ({row.issue})
+                            </div>
+                            <div className="mt-0.5 truncate text-[11px]">
+                              Bucket: {row.storage_bucket} · Path: {row.file_path || row.file_url || 'none'} · Expected: {row.expected_file_name || 'n/a'}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-emerald-700 dark:text-emerald-300">
+                      Every file reference in resources, syllabi, and submissions exists in its expected storage bucket.
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="mb-3 grid gap-2 sm:grid-cols-3">
                 <Select value={resourceModuleFilter} onChange={(e) => setResourceModuleFilter(e.target.value)}><option value="all">All modules</option><option value="none">Subject-wide</option>{modules.map((m) => <option key={m.id} value={String(m.id)}>Module {m.module_number}</option>)}</Select>
                 <Select value={resourceCategoryFilter} onChange={(e) => setResourceCategoryFilter(e.target.value)}><option value="all">All categories</option>{['KTU Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
@@ -2953,6 +3036,26 @@ export function AdminDashboardPage() {
         fileName={submissionPreview?.fileName}
         fileSizeBytes={submissionPreview?.fileSizeBytes}
         mimeType={submissionPreview?.mimeType}
+        onRefreshUrl={
+          submissionPreview
+            ? async () => {
+                const [fileUrl, downloadUrl] = await Promise.all([
+                  createFreshSignedUrl({
+                    bucket: submissionPreview.bucket,
+                    path: submissionPreview.targetPath,
+                    fileNameForError: submissionPreview.fileName,
+                  }),
+                  createFreshSignedUrl({
+                    bucket: submissionPreview.bucket,
+                    path: submissionPreview.targetPath,
+                    downloadFileName: submissionPreview.fileName || true,
+                    fileNameForError: submissionPreview.fileName,
+                  }),
+                ]);
+                return { fileUrl, downloadUrl };
+              }
+            : undefined
+        }
       />
     </div>
   );

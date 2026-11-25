@@ -170,6 +170,7 @@ export interface Resource {
   content_markdown: string | null;
   diagram_key: string | null;
   file_url: string | null;
+  storage_bucket?: string | null;
   file_path?: string | null;
   download_url?: string | null;
   file_name: string | null;
@@ -202,11 +203,31 @@ export interface SubjectSyllabus {
   subject_id: number;
   title: string;
   description: string;
+  storage_bucket?: string | null;
   file_path: string;
   file_name: string;
   file_size_bytes: number;
   mime_type: string;
   is_published: boolean;
+}
+
+export interface StorageAuditRow {
+  source_table: 'resources' | 'subject_syllabi' | 'community_submissions';
+  record_id: string;
+  subject_code: string | null;
+  title: string;
+  is_published: boolean;
+  deleted_at: string | null;
+  storage_bucket: string;
+  file_path: string | null;
+  file_url: string | null;
+  expected_file_name: string | null;
+  expected_mime_type: string | null;
+  expected_size_bytes: number | null;
+  object_exists: boolean;
+  actual_mime_type: string | null;
+  actual_size_bytes: number | null;
+  issue: 'ok' | 'missing_object' | 'missing_path' | 'invalid_url_reference' | 'bucket_mismatch' | 'size_mismatch' | 'mime_mismatch';
 }
 
 export interface Answer {

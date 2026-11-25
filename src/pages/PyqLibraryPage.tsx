@@ -142,6 +142,7 @@ export function PyqLibraryPage() {
         fileName={pdfPreview?.file_name}
         fileSizeBytes={pdfPreview?.file_size_bytes}
         mimeType={pdfPreview?.mime_type}
+        onRefreshUrl={pdfPreview ? () => api.refreshPreviewUrls(pdfPreview) : undefined}
       />
     </div>
   );

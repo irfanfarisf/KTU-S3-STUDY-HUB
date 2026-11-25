@@ -8,7 +8,7 @@ Students can browse published content without an account. Signing in lets them s
 
 The local `.env.local` already contains `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The configured project is reachable, but its `public.universities` table was not installed when checked. Install the schema before running the app:
 
-1. In the Supabase SQL Editor, apply migrations `001_initial_schema.sql` through `005_community_resource_routing.sql` in order. Migration 004 adds community submissions and notifications; migration 005 adds editable approval routing and published-resource metadata updates. These are incremental and do not reset existing academic content.
+1. In the Supabase SQL Editor, apply migrations `001_initial_schema.sql` through `007_fix_storage_rls_and_references.sql` in order. Migration 004 adds community submissions and notifications; migration 005 adds editable approval routing and published-resource metadata updates; migration 006 adds resource lifecycle/Trash; migration 007 fixes public read RLS on `study-resources` and adds `storage_bucket` + `audit_storage_references()`. These are incremental and do not reset existing academic content.
 2. Enable email/password sign-up in Supabase Auth. Set the project's Site URL to the app origin and add `http://localhost:5173/**` plus the deployed site's `https://<your-render-site>/**` to the redirect URL allowlist. Email confirmation can remain enabled; the account page explains the confirmation step.
 3. Create the administrator in **Authentication → Users** and confirm its email. Then add that Auth user's UUID to `public.admins` in SQL Editor:
 
@@ -69,3 +69,4 @@ Vite runs the app at `http://localhost:5173`. The page reads Supabase settings f
 - `npm start` — preview the production build locally
 - `npm run typecheck` — run TypeScript without emitting files
 - `npm run migrate:sqlite-to-supabase` — one-time privileged import from the current SQLite database
+- `npm run audit:storage` — verify published storage access across all resources and syllabi (`--verify-http` checks signed URL HTTP responses)

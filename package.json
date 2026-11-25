@@ -8,7 +8,8 @@
     "build": "vite build",
     "start": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "migrate:sqlite-to-supabase": "tsx scripts/migrate-sqlite-to-supabase.ts"
+    "migrate:sqlite-to-supabase": "tsx scripts/migrate-sqlite-to-supabase.ts",
+    "audit:storage": "tsx scripts/audit-storage-resources.ts"
   },
   "keywords": [
     "ktu",
