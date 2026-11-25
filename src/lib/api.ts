@@ -22,8 +22,10 @@ async function result<T>(query: PromiseLike<{ data: unknown; error: { message: s
 }
 
 function mapSubject(row: Row, includeUnpublished = false): Subject {
-  const countPublished = (items?: Array<{ id: number; is_published?: boolean }>) =>
-    items ? (includeUnpublished ? items.length : items.filter((item) => item.is_published !== false).length) : undefined;
+  const countPublished = (items?: Array<{ id: number; is_published?: boolean; deleted_at?: string | null }>) =>
+    items
+      ? items.filter((item) => !item.deleted_at && (includeUnpublished || item.is_published !== false)).length
+      : undefined;
   return {
     ...row,
     branch_code: row.branch?.code,
@@ -43,6 +45,7 @@ function mapSubject(row: Row, includeUnpublished = false): Subject {
 function mapResource(row: Row): Resource {
   return {
     ...row,
+    branch_id: row.subject?.branch_id ?? null,
     subject_code: row.subject?.code,
     subject_name: row.subject?.name,
     module_number: row.module?.module_number ?? null,
@@ -95,7 +98,7 @@ function filterBy<T extends Row>(query: any, filters: Record<string, unknown>): 
 }
 
 function metadataSubjectSelect(): string {
-  return '*, university:universities(code), scheme:schemes(name), branch:branches(code,name), semester:semesters(code,label), modules(id,is_published), resources(id,is_published), questions(id,is_published), programs(id,is_published), topics(id,is_published)';
+  return '*, university:universities(code), scheme:schemes(name), branch:branches(code,name), semester:semesters(code,label), modules(id,is_published), resources(id,is_published,deleted_at), questions(id,is_published), programs(id,is_published), topics(id,is_published)';
 }
 
 async function adminUserFor(userId: string): Promise<AdminUser | null> {
@@ -179,7 +182,7 @@ export const api = {
     if (!includeUnpublished) {
       modulesQuery = modulesQuery.eq('is_published', true);
       topicsQuery = topicsQuery.eq('is_published', true);
-      resourcesQuery = resourcesQuery.eq('is_published', true);
+      resourcesQuery = resourcesQuery.eq('is_published', true).is('deleted_at', null);
       questionsQuery = questionsQuery.eq('is_published', true);
       programsQuery = programsQuery.eq('is_published', true);
       revisionQuery = revisionQuery.eq('is_published', true);
@@ -198,7 +201,7 @@ export const api = {
       subject,
       modules: modules.map((module) => ({
         ...module,
-        resource_count: resources.filter((resource) => resource.module_id === module.id && resource.is_published).length,
+        resource_count: resources.filter((resource) => resource.module_id === module.id && resource.is_published && !resource.deleted_at).length,
         question_count: questions.filter((question) => question.module_id === module.id && question.is_published).length,
         program_count: programs.filter((program) => program.module_id === module.id && program.is_published).length,
         topic_count: topics.filter((topic) => topic.module_id === module.id && topic.is_published).length,
@@ -231,7 +234,8 @@ export const api = {
 
   getResources: async (filters?: {
     subjectId?: number; moduleId?: number; resourceType?: string; examType?: string; importance?: string;
-    schemeId?: number; branchId?: number; semesterId?: number; category?: string; includeUnpublished?: boolean;
+    schemeId?: number; branchId?: number; semesterId?: number; category?: string;
+    includeUnpublished?: boolean; includeDeleted?: boolean; deletedOnly?: boolean;
   }): Promise<Resource[]> => {
     let query = getSupabase()
       .from('resources')
@@ -244,7 +248,13 @@ export const api = {
       importance: filters?.importance,
       category: filters?.category,
     });
-    if (!filters?.includeUnpublished) query = query.eq('is_published', true).eq('subject.is_published', true);
+    if (!filters?.includeUnpublished) {
+      query = query.eq('is_published', true).is('deleted_at', null).eq('subject.is_published', true);
+    } else if (filters?.deletedOnly) {
+      query = query.not('deleted_at', 'is', null);
+    } else if (!filters?.includeDeleted) {
+      query = query.is('deleted_at', null);
+    }
     if (filters?.schemeId) query = query.eq('subject.scheme_id', filters.schemeId);
     if (filters?.branchId) query = query.eq('subject.branch_id', filters.branchId);
     if (filters?.semesterId) query = query.eq('subject.semester_id', filters.semesterId);
@@ -352,7 +362,7 @@ export const api = {
       result<Row[]>(db.from('subjects').select('*,branch:branches(code,name),semester:semesters(code,label)').eq('is_published', true).limit(500)),
       result<Row[]>(db.from('modules').select('*,subject:subjects!inner(id,code,name,is_published)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
       result<Row[]>(db.from('topics').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
-      result<Row[]>(db.from('resources').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title),topic:topics(title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
+      result<Row[]>(db.from('resources').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title),topic:topics(title)').eq('is_published', true).is('deleted_at', null).eq('subject.is_published', true).limit(1000)),
       result<Row[]>(db.from('questions').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title),topic:topics(title),answers(short_answer)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
       result<Row[]>(db.from('programs').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
       result<Row[]>(db.from('revision_items').select('*,subject:subjects!inner(id,code,name,is_published),module:modules(module_number,title)').eq('is_published', true).eq('subject.is_published', true).limit(1000)),
@@ -513,10 +523,67 @@ export const api = {
   deleteTopic: async (id: number) => deleteRow('topics', id),
   createResource: async (payload: Record<string, unknown>) => ({ id: await insertId('resources', { ...payload, content_format: payload.content_format || (payload.file_url || payload.file_path ? 'pdf' : 'markdown') }) }),
   patchResource: async (id: number, payload: Record<string, unknown>) => { await result(getSupabase().from('resources').update(payload).eq('id', id)); return { ok: true }; },
+  unpublishResource: async (id: number) => {
+    const { error } = await getSupabase().rpc('unpublish_resource', { p_resource_id: id });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  republishResource: async (
+    id: number,
+    destination?: { subjectId?: number | null; moduleId?: number | null; topicId?: number | null; category?: string | null }
+  ) => {
+    const { data, error } = await getSupabase().rpc('republish_resource', {
+      p_resource_id: id,
+      p_subject_id: destination?.subjectId ?? null,
+      p_module_id: destination?.moduleId ?? null,
+      p_topic_id: destination?.topicId ?? null,
+      p_category: destination?.category ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return { id: Number(data) };
+  },
+  softDeleteResource: async (id: number) => {
+    const { error } = await getSupabase().rpc('soft_delete_resource', { p_resource_id: id });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  restoreDeletedResource: async (
+    id: number,
+    destination?: { subjectId?: number | null; moduleId?: number | null; topicId?: number | null }
+  ) => {
+    const { data, error } = await getSupabase().rpc('restore_deleted_resource', {
+      p_resource_id: id,
+      p_subject_id: destination?.subjectId ?? null,
+      p_module_id: destination?.moduleId ?? null,
+      p_topic_id: destination?.topicId ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return { id: Number(data) };
+  },
+  permanentlyDeleteResource: async (id: number) => {
+    const { data, error } = await getSupabase().rpc('permanently_delete_resource', { p_resource_id: id });
+    if (error) throw new Error(error.message);
+    const res = data as { deleted_id: number; file_path: string | null; can_delete_storage_file: boolean };
+    if (res?.can_delete_storage_file && res.file_path) {
+      const { error: storageErr } = await getSupabase().storage.from('study-resources').remove([res.file_path]);
+      if (storageErr) throw new Error(storageErr.message);
+    }
+    return res;
+  },
   deleteResource: async (id: number) => {
-    const row = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());
-    await deleteRow('resources', id);
-    if (row?.file_path) await getSupabase().storage.from('study-resources').remove([row.file_path]);
+    const { error } = await getSupabase().rpc('soft_delete_resource', { p_resource_id: id });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  removeSubmissionFromCommunity: async (submissionId: string) => {
+    const { error } = await getSupabase().rpc('remove_submission_from_community', { p_submission_id: submissionId });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  restoreSubmissionToCommunity: async (submissionId: string) => {
+    const { error } = await getSupabase().rpc('restore_submission_to_community', { p_submission_id: submissionId });
+    if (error) throw new Error(error.message);
+    return { ok: true };
   },
   replaceResourceFile: async (id: number, file: File) => {
     const current = await result<Row | null>(getSupabase().from('resources').select('file_path').eq('id', id).maybeSingle());

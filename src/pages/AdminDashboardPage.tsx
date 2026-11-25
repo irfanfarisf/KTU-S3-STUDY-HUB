@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  Archive,
   BookOpen,
   Bell,
   Check,
@@ -13,6 +14,7 @@ import {
   Layers,
   LogOut,
   Plus,
+  RotateCcw,
   Save,
   Search,
   ShieldCheck,
@@ -29,6 +31,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { PdfViewerModal } from '@/components/study/PdfViewerModal';
 import { RESOURCE_TYPE_LABELS } from '@/lib/utils';
 import { getSupabase } from '@/lib/supabase';
@@ -41,7 +44,8 @@ type AdminTab =
   | 'programs_revision'
   | 'hierarchy'
   | 'bulk'
-  | 'submissions';
+  | 'submissions'
+  | 'trash';
 
 const COMMUNITY_CATEGORIES = ['Study Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'];
 
@@ -90,9 +94,26 @@ export function AdminDashboardPage() {
   const [programs, setPrograms] = useState<ProgramItem[]>([]);
   const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
   const [cmsSearch, setCmsSearch] = useState('');
+  const [resourceStatusFilter, setResourceStatusFilter] = useState<'all' | 'published' | 'unpublished'>('all');
   const [resourceCategoryFilter, setResourceCategoryFilter] = useState('all');
   const [resourceTypeFilter, setResourceTypeFilter] = useState('all');
   const [resourceModuleFilter, setResourceModuleFilter] = useState('all');
+  const [trashedResources, setTrashedResources] = useState<Resource[]>([]);
+  const [trashSubjectFilter, setTrashSubjectFilter] = useState('all');
+  const [undoSoftDelete, setUndoSoftDelete] = useState<{ resourceId: number; title: string } | null>(null);
+  const [softDeleteModal, setSoftDeleteModal] = useState<Resource | null>(null);
+  const [permanentDeleteModal, setPermanentDeleteModal] = useState<Resource | null>(null);
+  const [removeCommunityModal, setRemoveCommunityModal] = useState<any | null>(null);
+  const [republishModal, setRepublishModal] = useState<{
+    mode: 'republish' | 'restore';
+    resource: Resource;
+    destinationValid: boolean;
+    invalidReason?: string;
+    subjectId: number;
+    moduleId: number;
+    topicId: number;
+  } | null>(null);
+  const [busyResourceId, setBusyResourceId] = useState<number | null>(null);
 
   // Form states: Subject
   const [subForm, setSubForm] = useState({
@@ -161,10 +182,10 @@ export function AdminDashboardPage() {
     if (error) return;
     const ids = (data || []).map((item: any) => item.published_resource_id).filter(Boolean);
     const [publishedResult, moduleResult, topicResult, existingResourcesResult] = await Promise.all([
-      ids.length ? getSupabase().from('resources').select('id,subject_id,module_id,topic_id,file_path').in('id', ids) : Promise.resolve({ data: [], error: null } as any),
+      ids.length ? getSupabase().from('resources').select('id,subject_id,module_id,topic_id,file_path,is_published,deleted_at').in('id', ids) : Promise.resolve({ data: [], error: null } as any),
       getSupabase().from('modules').select('id,subject_id,module_number,title').eq('is_published', true),
       getSupabase().from('topics').select('id,subject_id,module_id,title').eq('is_published', true),
-      getSupabase().from('resources').select('id,subject_id,module_id,title,file_name,file_size_bytes,category').eq('is_published', true),
+      getSupabase().from('resources').select('id,subject_id,module_id,title,file_name,file_size_bytes,category').eq('is_published', true).is('deleted_at', null),
     ]);
     const resourcesById = new Map((publishedResult.data || []).map((resource: any) => [resource.id, resource]));
     setSubmissions((data || []).map((item: any) => ({ ...item, published_resource: resourcesById.get(item.published_resource_id) || null })));
@@ -250,6 +271,15 @@ export function AdminDashboardPage() {
     setTimeout(() => setStatusMsg(null), 4500);
   };
 
+  const loadTrashedResources = useCallback(async () => {
+    try {
+      const list = await api.getResources({ includeUnpublished: true, deletedOnly: true });
+      setTrashedResources(list);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
   const loadSubjects = useCallback(async () => {
     const list = await api.getSubjects({ includeUnpublished: true });
     setSubjects(list);
@@ -283,8 +313,15 @@ export function AdminDashboardPage() {
   useEffect(() => {
     if (adminUser) {
       loadSubjects();
+      loadTrashedResources();
     }
-  }, [adminUser, loadSubjects]);
+  }, [adminUser, loadSubjects, loadTrashedResources]);
+
+  useEffect(() => {
+    if (tab === 'trash' && adminUser) {
+      void loadTrashedResources();
+    }
+  }, [tab, adminUser, loadTrashedResources]);
 
   useEffect(() => {
     if (adminUser && selectedSubjectId) {
@@ -325,6 +362,169 @@ export function AdminDashboardPage() {
       notify('err', (err as Error).message);
     } finally {
       setUploadingFile(false);
+    }
+  };
+
+  const openRepublishOrRestoreModal = async (resource: Resource, mode: 'republish' | 'restore') => {
+    try {
+      const [modRes, topRes] = await Promise.all([
+        getSupabase().from('modules').select('id,subject_id,module_number,title').eq('is_published', true),
+        getSupabase().from('topics').select('id,subject_id,module_id,title').eq('is_published', true),
+      ]);
+      const pubModules = modRes.data || [];
+      const pubTopics = topRes.data || [];
+      setSubmissionModuleOptions(pubModules);
+      setSubmissionTopicOptions(pubTopics);
+
+      const destSubject = subjects.find((s) => s.id === resource.subject_id && s.is_published);
+      const destModule = resource.module_id
+        ? pubModules.find((m) => m.id === resource.module_id && m.subject_id === resource.subject_id)
+        : null;
+      const destTopic = resource.topic_id
+        ? pubTopics.find((t) => t.id === resource.topic_id && t.subject_id === resource.subject_id && t.module_id === resource.module_id)
+        : null;
+
+      let invalidReason: string | undefined;
+      if (!destSubject) {
+        invalidReason = 'Original subject is missing or currently unpublished. Select a valid published subject before restoring.';
+      } else if (resource.module_id && !destModule) {
+        invalidReason = 'Original module is missing or currently unpublished. Select a valid module (or Subject-wide) before restoring.';
+      } else if (resource.topic_id && !destTopic) {
+        invalidReason = 'Original topic is missing or currently unpublished. Select a valid topic (or No specific topic) before restoring.';
+      }
+
+      setRepublishModal({
+        mode,
+        resource,
+        destinationValid: !invalidReason,
+        invalidReason,
+        subjectId: destSubject ? destSubject.id : 0,
+        moduleId: destModule ? destModule.id : 0,
+        topicId: destTopic ? destTopic.id : 0,
+      });
+    } catch (err) {
+      notify('err', (err as Error).message);
+    }
+  };
+
+  const handleConfirmRepublishOrRestore = async () => {
+    if (!republishModal) return;
+    const { mode, resource, subjectId, moduleId, topicId } = republishModal;
+    if (!subjectId) {
+      notify('err', 'Please select a valid published destination subject.');
+      return;
+    }
+    setBusyResourceId(resource.id);
+    try {
+      if (mode === 'republish') {
+        await api.republishResource(resource.id, {
+          subjectId,
+          moduleId: moduleId || null,
+          topicId: topicId || null,
+        });
+        notify('ok', `"${resource.title}" republished to student-facing sections.`);
+      } else {
+        await api.restoreDeletedResource(resource.id, {
+          subjectId,
+          moduleId: moduleId || null,
+          topicId: topicId || null,
+        });
+        notify('ok', `"${resource.title}" restored from Trash.`);
+      }
+      setRepublishModal(null);
+      await Promise.all([
+        loadSubjects(),
+        loadTrashedResources(),
+        selectedSubjectId ? loadSubjectScopedData(selectedSubjectId) : Promise.resolve(),
+      ]);
+      if (tab === 'submissions') await loadSubmissions();
+    } catch (err) {
+      notify('err', (err as Error).message);
+    } finally {
+      setBusyResourceId(null);
+    }
+  };
+
+  const handleConfirmSoftDelete = async () => {
+    if (!softDeleteModal) return;
+    const target = softDeleteModal;
+    setBusyResourceId(target.id);
+    try {
+      await api.softDeleteResource(target.id);
+      setSoftDeleteModal(null);
+      setUndoSoftDelete({ resourceId: target.id, title: target.title });
+      await Promise.all([
+        loadSubjects(),
+        loadTrashedResources(),
+        selectedSubjectId ? loadSubjectScopedData(selectedSubjectId) : Promise.resolve(),
+      ]);
+      notify('ok', `"${target.title}" moved to Trash. File and metadata preserved.`);
+    } catch (err) {
+      notify('err', (err as Error).message);
+    } finally {
+      setBusyResourceId(null);
+    }
+  };
+
+  const handleUndoSoftDelete = async () => {
+    if (!undoSoftDelete) return;
+    const target = undoSoftDelete;
+    setBusyResourceId(target.resourceId);
+    try {
+      await api.restoreDeletedResource(target.resourceId);
+      setUndoSoftDelete(null);
+      await Promise.all([
+        loadSubjects(),
+        loadTrashedResources(),
+        selectedSubjectId ? loadSubjectScopedData(selectedSubjectId) : Promise.resolve(),
+      ]);
+      notify('ok', `Undo successful: "${target.title}" restored.`);
+    } catch (err) {
+      notify('err', (err as Error).message);
+    } finally {
+      setBusyResourceId(null);
+    }
+  };
+
+  const handleConfirmPermanentDelete = async () => {
+    if (!permanentDeleteModal) return;
+    const target = permanentDeleteModal;
+    setBusyResourceId(target.id);
+    try {
+      const res = await api.permanentlyDeleteResource(target.id);
+      setPermanentDeleteModal(null);
+      await Promise.all([
+        loadSubjects(),
+        loadTrashedResources(),
+        selectedSubjectId ? loadSubjectScopedData(selectedSubjectId) : Promise.resolve(),
+      ]);
+      if (tab === 'submissions') await loadSubmissions();
+      notify(
+        'ok',
+        res.can_delete_storage_file
+          ? `"${target.title}" and its unreferenced storage file were permanently deleted.`
+          : `"${target.title}" record was permanently deleted. Storage file was kept because it is still referenced elsewhere.`
+      );
+    } catch (err) {
+      notify('err', (err as Error).message);
+    } finally {
+      setBusyResourceId(null);
+    }
+  };
+
+  const handleConfirmRemoveFromCommunity = async () => {
+    if (!removeCommunityModal) return;
+    const target = removeCommunityModal;
+    setBusySubmissionId(target.id);
+    try {
+      await api.removeSubmissionFromCommunity(target.id);
+      setRemoveCommunityModal(null);
+      await Promise.all([loadSubmissions(), loadNotifications()]);
+      notify('ok', 'Submission removed from active Community Submissions. Published resource remains live for students.');
+    } catch (err) {
+      notify('err', (err as Error).message);
+    } finally {
+      setBusySubmissionId(null);
     }
   };
 
@@ -514,6 +714,8 @@ export function AdminDashboardPage() {
     );
   }
 
+  const pendingSubmissionsCount = submissions.filter((s) => s.status === 'pending' && !s.archived_from_community_at).length;
+
   const tabs: Array<{ id: AdminTab; label: string; icon: React.ElementType }> = [
     { id: 'subjects', label: 'Subjects', icon: BookOpen },
     { id: 'modules_topics', label: 'Modules & Topics', icon: Layers },
@@ -522,7 +724,8 @@ export function AdminDashboardPage() {
     { id: 'programs_revision', label: 'Programs & Revision', icon: FileCode2 },
     { id: 'hierarchy', label: 'Branches & Sems', icon: Plus },
     { id: 'bulk', label: 'Bulk Import', icon: Upload },
-    { id: 'submissions', label: `Community Submissions${submissions.filter((s) => s.status === 'pending').length ? ` (${submissions.filter((s) => s.status === 'pending').length})` : ''}`, icon: Bell },
+    { id: 'submissions', label: `Community Submissions${pendingSubmissionsCount ? ` (${pendingSubmissionsCount})` : ''}`, icon: Bell },
+    { id: 'trash', label: `Trash${trashedResources.length ? ` (${trashedResources.length})` : ''}`, icon: Trash2 },
   ];
 
   const activeSubject = subjects.find((s) => s.id === selectedSubjectId);
@@ -577,6 +780,28 @@ export function AdminDashboardPage() {
         </div>
       )}
 
+      {undoSoftDelete && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>
+            <strong>{undoSoftDelete.title}</strong> was moved to Trash and removed from student-facing sections.
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busyResourceId === undoSoftDelete.resourceId}
+              onClick={() => void handleUndoSoftDelete()}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Undo
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setUndoSoftDelete(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* CMS Tabs */}
       <div className="mt-5 flex gap-1.5 overflow-x-auto pb-2">
         {tabs.map((t) => (
@@ -606,10 +831,12 @@ export function AdminDashboardPage() {
             <div className="flex flex-wrap gap-2">
               <Input value={cmsSearch} onChange={(e) => setCmsSearch(e.target.value)} placeholder="Search submissions..." className="w-56" />
               <Select value={submissionStatusFilter} onChange={(e) => setSubmissionStatusFilter(e.target.value)}>
-                <option value="all">All statuses</option>
+                <option value="all">All Active</option>
                 <option value="pending">Pending Review</option>
-                <option value="approved">Approved</option>
+                <option value="approved">Reviewed / Approved</option>
                 <option value="rejected">Rejected</option>
+                <option value="archived">Archived / Reviewed</option>
+                <option value="all_including_archived">All (Including Archived)</option>
               </Select>
               <Select value={submissionBranchFilter} onChange={(e) => setSubmissionBranchFilter(e.target.value)}>
                 <option value="all">All branches</option>
@@ -627,7 +854,38 @@ export function AdminDashboardPage() {
             </div>
           </div>
 
-          {submissions.filter((item) => (submissionStatusFilter === 'all' || item.status === submissionStatusFilter) && (submissionBranchFilter === 'all' || String(item.branch_id) === submissionBranchFilter) && (submissionSemesterFilter === 'all' || String(item.semester_id) === submissionSemesterFilter) && (submissionCategoryFilter === 'all' || item.category === submissionCategoryFilter) && (!submissionDateFilter || item.created_at.slice(0, 10) === submissionDateFilter) && `${item.title} ${item.branch?.code} ${item.subject_name} ${item.subject_code} ${item.category}`.toLowerCase().includes(cmsSearch.toLowerCase())).map((item) => {
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { id: 'all', label: `Active (${submissions.filter((s) => !s.archived_from_community_at).length})` },
+              { id: 'pending', label: `Pending Review (${submissions.filter((s) => s.status === 'pending' && !s.archived_from_community_at).length})` },
+              { id: 'approved', label: `Reviewed / Approved (${submissions.filter((s) => s.status === 'approved' && !s.archived_from_community_at).length})` },
+              { id: 'rejected', label: `Rejected (${submissions.filter((s) => s.status === 'rejected' && !s.archived_from_community_at).length})` },
+              { id: 'archived', label: `Archived / Reviewed (${submissions.filter((s) => Boolean(s.archived_from_community_at)).length})` },
+            ].map((pill) => (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => setSubmissionStatusFilter(pill.id)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium cursor-pointer ${
+                  submissionStatusFilter === pill.id
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                }`}
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+
+          {submissions.filter((item) => {
+            const isArchived = Boolean(item.archived_from_community_at);
+            const matchesStatus =
+              submissionStatusFilter === 'all_including_archived' ? true :
+              submissionStatusFilter === 'archived' ? isArchived :
+              submissionStatusFilter === 'all' ? !isArchived :
+              !isArchived && item.status === submissionStatusFilter;
+            return matchesStatus && (submissionBranchFilter === 'all' || String(item.branch_id) === submissionBranchFilter) && (submissionSemesterFilter === 'all' || String(item.semester_id) === submissionSemesterFilter) && (submissionCategoryFilter === 'all' || item.category === submissionCategoryFilter) && (!submissionDateFilter || item.created_at.slice(0, 10) === submissionDateFilter) && `${item.title} ${item.branch?.code} ${item.subject_name} ${item.subject_code} ${item.category}`.toLowerCase().includes(cmsSearch.toLowerCase());
+          }).map((item) => {
             const edit: SubmissionEdit = submissionEdits[item.id] || { title: item.title, description: item.description || '', category: item.category, source_info: item.source_info || '' };
             const destinationSubjectId = Number(
               Object.prototype.hasOwnProperty.call(submissionSubjects, item.id)
@@ -791,8 +1049,20 @@ export function AdminDashboardPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold">{item.title}</h3>
                         <Badge variant={item.status === 'approved' ? 'emerald' : item.status === 'pending' ? 'amber' : 'outline'}>
-                          {item.status === 'pending' ? 'Pending Review' : item.status}
+                          {item.status === 'pending' ? 'Pending Review' : item.status === 'approved' ? 'Approved' : 'Rejected'}
                         </Badge>
+                        {item.archived_from_community_at && (
+                          <Badge variant="outline">Archived from Community</Badge>
+                        )}
+                        {item.status === 'approved' && item.published_resource && (
+                          <Badge variant={item.published_resource.deleted_at ? 'amber' : item.published_resource.is_published ? 'blue' : 'outline'}>
+                            {item.published_resource.deleted_at
+                              ? 'Resource in Trash'
+                              : item.published_resource.is_published
+                                ? 'Resource Live'
+                                : 'Resource Unpublished'}
+                          </Badge>
+                        )}
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
                         {item.branch?.code} · {item.semester?.code} · {item.subject?.code || item.subject_code || item.subject_name || 'Subject to verify'} · {item.category}
@@ -1062,10 +1332,43 @@ export function AdminDashboardPage() {
                         </Button>
                       </>
                     )}
-                    {item.status === 'approved' && (
-                      <Button size="sm" disabled={isBusy || !destinationSubjectId || !edit.title.trim()} onClick={() => void saveMetadata()}>
+                    {item.status === 'approved' && !item.archived_from_community_at && (
+                      <Button size="sm" disabled={isBusy || !destinationSubjectId || !edit.title.trim() || Boolean(item.published_resource?.deleted_at)} onClick={() => void saveMetadata()}>
                         <Save className="h-3.5 w-3.5" />
                         {isBusy ? 'Saving…' : 'Save resource details'}
+                      </Button>
+                    )}
+                    {(item.status === 'approved' || item.status === 'rejected') && !item.archived_from_community_at && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={() => setRemoveCommunityModal(item)}
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                        Remove from Community
+                      </Button>
+                    )}
+                    {item.archived_from_community_at && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={async () => {
+                          setBusySubmissionId(item.id);
+                          try {
+                            await api.restoreSubmissionToCommunity(item.id);
+                            await loadSubmissions();
+                            notify('ok', 'Submission restored to active Community Submissions list.');
+                          } catch (err) {
+                            notify('err', (err as Error).message);
+                          } finally {
+                            setBusySubmissionId(null);
+                          }
+                        }}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore to Community List
                       </Button>
                     )}
                   </div>
@@ -1679,9 +1982,31 @@ export function AdminDashboardPage() {
 
           <Card className="lg:col-span-2">
             <CardContent className="p-5">
-              <h2 className="mb-3 text-base font-bold">
-                Resources for {activeSubject?.code} ({resources.length})
-              </h2>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-bold">
+                  Resources for {activeSubject?.code} ({resources.length})
+                </h2>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'all' as const, label: `All Active (${resources.length})` },
+                    { id: 'published' as const, label: `Published (${resources.filter((r) => r.is_published).length})` },
+                    { id: 'unpublished' as const, label: `Unpublished (${resources.filter((r) => !r.is_published).length})` },
+                  ].map((pill) => (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={() => setResourceStatusFilter(pill.id)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                        resourceStatusFilter === pill.id
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="mb-3 grid gap-2 sm:grid-cols-3">
                 <Select value={resourceModuleFilter} onChange={(e) => setResourceModuleFilter(e.target.value)}><option value="all">All modules</option><option value="none">Subject-wide</option>{modules.map((m) => <option key={m.id} value={String(m.id)}>Module {m.module_number}</option>)}</Select>
                 <Select value={resourceCategoryFilter} onChange={(e) => setResourceCategoryFilter(e.target.value)}><option value="all">All categories</option>{['KTU Notes','Handwritten Notes','Previous Year Question Papers','Model Question Papers','Solved Question Papers','Question Banks','Important Questions','Reference Materials','Assignments','Other Resources'].map((c) => <option key={c}>{c}</option>)}</Select>
@@ -1695,6 +2020,7 @@ export function AdminDashboardPage() {
                       r.title.toLowerCase().includes(cmsSearch.toLowerCase()) ||
                       r.resource_type.includes(cmsSearch.toLowerCase())
                   )
+                  .filter((r) => resourceStatusFilter === 'all' || (resourceStatusFilter === 'published' ? r.is_published : !r.is_published))
                   .filter((r) => resourceCategoryFilter === 'all' || r.category === resourceCategoryFilter)
                   .filter((r) => resourceModuleFilter === 'all' || (resourceModuleFilter === 'none' ? !r.module_id : String(r.module_id) === resourceModuleFilter))
                   .filter((r) => resourceTypeFilter === 'all' || r.file_name?.toLowerCase().endsWith(`.${resourceTypeFilter}`))
@@ -1707,13 +2033,13 @@ export function AdminDashboardPage() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant="blue">{RESOURCE_TYPE_LABELS[r.resource_type]}</Badge>
                           {r.module_number && <Badge variant="outline">M{r.module_number}</Badge>}
-                          <Badge variant={r.is_published ? 'emerald' : 'outline'}>
-                            {r.is_published ? 'Live' : 'Draft'}
+                          <Badge variant={r.is_published ? 'emerald' : 'amber'}>
+                            {r.is_published ? 'Published' : 'Unpublished'}
                           </Badge>
                         </div>
                         <div className="mt-1 truncate text-sm font-semibold">{r.title}</div>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1732,38 +2058,53 @@ export function AdminDashboardPage() {
                           }}
                         >Edit</Button>
                         {r.file_path && <label className="inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-xs font-medium"><FileUp className="mr-1 h-3.5 w-3.5"/>Replace<input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await api.replaceResourceFile(r.id, file); await loadSubjectScopedData(selectedSubjectId); notify('ok', 'Resource file replaced.'); } catch (error) { notify('err', (error as Error).message); } finally { e.target.value = ''; } }} /></label>}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              await api.patchResource(r.id, { is_published: !r.is_published });
-                              await loadSubjectScopedData(selectedSubjectId);
-                            } catch (err) {
-                              notify('err', (err as Error).message);
-                            }
-                          }}
-                        >
-                          {r.is_published ? 'Unpublish' : 'Publish'}
-                        </Button>
+                        {r.is_published ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busyResourceId === r.id}
+                            onClick={async () => {
+                              setBusyResourceId(r.id);
+                              try {
+                                await api.unpublishResource(r.id);
+                                await Promise.all([loadSubjectScopedData(selectedSubjectId), loadSubjects()]);
+                                notify('ok', `"${r.title}" unpublished and hidden from students. File and metadata preserved.`);
+                              } catch (err) {
+                                notify('err', (err as Error).message);
+                              } finally {
+                                setBusyResourceId(null);
+                              }
+                            }}
+                          >
+                            <EyeOff className="h-3.5 w-3.5" />
+                            Unpublish
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busyResourceId === r.id}
+                            onClick={() => void openRepublishOrRestoreModal(r, 'republish')}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Republish / Restore
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={async () => {
-                            try {
-                              await api.deleteResource(r.id);
-                              await loadSubjectScopedData(selectedSubjectId);
-                              await loadSubjects();
-                            } catch (err) {
-                              notify('err', (err as Error).message);
-                            }
-                          }}
+                          disabled={busyResourceId === r.id}
+                          aria-label="Move to Trash"
+                          onClick={() => setSoftDeleteModal(r)}
                         >
                           <Trash2 className="h-4 w-4 text-rose-500" />
                         </Button>
                       </div>
                     </div>
                   ))}
+                {resources.length === 0 && (
+                  <p className="py-6 text-center text-xs text-slate-500">No active resources for this subject yet.</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -2270,6 +2611,339 @@ export function AdminDashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* TAB: TRASH */}
+      {tab === 'trash' && (
+        <section className="mt-5 space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Trash</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Soft-deleted resources are hidden from students while keeping their database records and storage files intact. Restore a resource or permanently delete it.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                value={cmsSearch}
+                onChange={(e) => setCmsSearch(e.target.value)}
+                placeholder="Search Trash..."
+                className="w-56"
+              />
+              <Select value={trashSubjectFilter} onChange={(e) => setTrashSubjectFilter(e.target.value)}>
+                <option value="all">All subjects</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {trashedResources
+              .filter((r) => trashSubjectFilter === 'all' || String(r.subject_id) === trashSubjectFilter)
+              .filter(
+                (r) =>
+                  !cmsSearch ||
+                  r.title.toLowerCase().includes(cmsSearch.toLowerCase()) ||
+                  (r.subject_code || '').toLowerCase().includes(cmsSearch.toLowerCase()) ||
+                  (r.file_name || '').toLowerCase().includes(cmsSearch.toLowerCase())
+              )
+              .map((r) => (
+                <Card key={r.id}>
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="amber">In Trash</Badge>
+                        <Badge variant="blue">{RESOURCE_TYPE_LABELS[r.resource_type]}</Badge>
+                        {r.subject_code && <Badge variant="outline">{r.subject_code}</Badge>}
+                        {r.module_number && <Badge variant="outline">M{r.module_number}</Badge>}
+                      </div>
+                      <div className="mt-1 truncate text-sm font-semibold">{r.title}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        {r.subject_name || 'Unknown subject'}
+                        {r.category ? ` · ${r.category}` : ''}
+                        {r.file_name ? ` · ${r.file_name}` : ''}
+                        {r.deleted_at ? ` · Deleted ${new Date(r.deleted_at).toLocaleString()}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyResourceId === r.id}
+                        onClick={() => void openRepublishOrRestoreModal(r, 'restore')}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busyResourceId === r.id}
+                        onClick={() => setPermanentDeleteModal(r)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete Permanently
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            {trashedResources.length === 0 && (
+              <Card>
+                <CardContent className="p-8 text-center text-sm text-slate-500">
+                  Trash is empty. Deleted resources will appear here so you can restore or permanently delete them.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Soft Delete Confirmation Modal */}
+      <Modal
+        open={Boolean(softDeleteModal)}
+        onClose={() => setSoftDeleteModal(null)}
+        title="Move Resource to Trash?"
+        subtitle={softDeleteModal?.title}
+        maxWidthClass="max-w-lg"
+      >
+        {softDeleteModal && (
+          <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+            <p>
+              This resource will be moved to <strong>Trash</strong> and removed from student-facing sections immediately.
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Its database record, metadata, and storage file will be preserved so you can undo or restore it anytime from Trash.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setSoftDeleteModal(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={busyResourceId === softDeleteModal.id}
+                onClick={() => void handleConfirmSoftDelete()}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {busyResourceId === softDeleteModal.id ? 'Moving…' : 'Move to Trash'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Permanent Delete Confirmation Modal */}
+      <Modal
+        open={Boolean(permanentDeleteModal)}
+        onClose={() => setPermanentDeleteModal(null)}
+        title="Permanently Delete Resource?"
+        subtitle={permanentDeleteModal?.title}
+        maxWidthClass="max-w-lg"
+      >
+        {permanentDeleteModal && (
+          <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                This action is <strong>permanent and cannot be undone</strong>. The database record will be deleted, and the associated storage file will be removed only if no other resource or submission references it.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setPermanentDeleteModal(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={busyResourceId === permanentDeleteModal.id}
+                onClick={() => void handleConfirmPermanentDelete()}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {busyResourceId === permanentDeleteModal.id ? 'Deleting…' : 'Permanently Delete'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Republish / Restore Confirmation & Destination Modal */}
+      <Modal
+        open={Boolean(republishModal)}
+        onClose={() => setRepublishModal(null)}
+        title={republishModal?.mode === 'republish' ? 'Republish Resource?' : 'Restore Resource from Trash?'}
+        subtitle={republishModal?.resource.title}
+        maxWidthClass="max-w-xl"
+      >
+        {republishModal && (
+          <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+            {!republishModal.destinationValid && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <p>{republishModal.invalidReason}</p>
+              </div>
+            )}
+
+            {republishModal.destinationValid && (
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Confirm restoring this resource to its assigned destination without creating a duplicate record. Its original file and metadata will be preserved.
+              </p>
+            )}
+
+            <div className="space-y-3 rounded-xl border border-slate-200 p-3.5 text-xs dark:border-slate-800">
+              <label className="block font-semibold text-slate-700 dark:text-slate-200">
+                Destination Subject
+                <Select
+                  className="mt-1"
+                  value={String(republishModal.subjectId || '')}
+                  onChange={(e) =>
+                    setRepublishModal((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            subjectId: Number(e.target.value),
+                            moduleId: 0,
+                            topicId: 0,
+                          }
+                        : null
+                    )
+                  }
+                >
+                  <option value="">Choose a published subject…</option>
+                  {subjects
+                    .filter((s) => s.is_published)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code} — {s.name} ({s.branch_code} · {s.semester_code})
+                      </option>
+                    ))}
+                </Select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block font-semibold text-slate-700 dark:text-slate-200">
+                  Module (optional)
+                  <Select
+                    className="mt-1"
+                    value={String(republishModal.moduleId || '')}
+                    onChange={(e) =>
+                      setRepublishModal((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              moduleId: Number(e.target.value),
+                              topicId: 0,
+                            }
+                          : null
+                      )
+                    }
+                  >
+                    <option value="">Subject-wide</option>
+                    {submissionModuleOptions
+                      .filter((m) => m.subject_id === republishModal.subjectId)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          Module {m.module_number}: {m.title}
+                        </option>
+                      ))}
+                  </Select>
+                </label>
+
+                <label className="block font-semibold text-slate-700 dark:text-slate-200">
+                  Topic (optional)
+                  <Select
+                    className="mt-1"
+                    disabled={!republishModal.moduleId}
+                    value={String(republishModal.topicId || '')}
+                    onChange={(e) =>
+                      setRepublishModal((prev) =>
+                        prev ? { ...prev, topicId: Number(e.target.value) } : null
+                      )
+                    }
+                  >
+                    <option value="">No specific topic</option>
+                    {submissionTopicOptions
+                      .filter(
+                        (t) =>
+                          t.subject_id === republishModal.subjectId &&
+                          t.module_id === republishModal.moduleId
+                      )
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.title}
+                        </option>
+                      ))}
+                  </Select>
+                </label>
+              </div>
+
+              {republishModal.resource.category && (
+                <p className="text-[11px] text-slate-500">
+                  Category: <strong>{republishModal.resource.category}</strong>
+                  {republishModal.resource.file_name ? ` · File: ${republishModal.resource.file_name}` : ''}
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setRepublishModal(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!republishModal.subjectId || busyResourceId === republishModal.resource.id}
+                onClick={() => void handleConfirmRepublishOrRestore()}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {busyResourceId === republishModal.resource.id
+                  ? 'Processing…'
+                  : republishModal.mode === 'republish'
+                    ? 'Confirm Republish'
+                    : 'Confirm Restore'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Remove from Community Confirmation Modal */}
+      <Modal
+        open={Boolean(removeCommunityModal)}
+        onClose={() => setRemoveCommunityModal(null)}
+        title="Remove Reviewed Submission from Community?"
+        subtitle={removeCommunityModal?.title}
+        maxWidthClass="max-w-lg"
+      >
+        {removeCommunityModal && (
+          <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+            <p>
+              This will remove the reviewed submission from the active <strong>Community Submissions</strong> list and move it to <strong>Archived / Reviewed Submissions</strong>.
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {removeCommunityModal.status === 'approved'
+                ? 'The approved published resource and its file will remain untouched and available to students.'
+                : 'Its review history will be preserved in Archived / Reviewed Submissions.'}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setRemoveCommunityModal(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={busySubmissionId === removeCommunityModal.id}
+                onClick={() => void handleConfirmRemoveFromCommunity()}
+              >
+                <Archive className="h-3.5 w-3.5" />
+                {busySubmissionId === removeCommunityModal.id ? 'Removing…' : 'Remove from Community'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <PdfViewerModal
         open={Boolean(submissionPreview)}
         onClose={() => setSubmissionPreview(null)}

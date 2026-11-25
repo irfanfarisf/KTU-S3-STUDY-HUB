@@ -177,9 +177,16 @@ export interface Resource {
   mime_type: string | null;
   category?: string | null;
   is_published: boolean;
+  unpublished_at?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  was_published_before_delete?: boolean;
   created_at: string;
   updated_at: string;
   // Joined metadata
+  branch_id?: number | null;
+  branch_code?: string;
+  branch_name?: string;
   subject_code?: string;
   subject_name?: string;
   module_number?: number | null;
